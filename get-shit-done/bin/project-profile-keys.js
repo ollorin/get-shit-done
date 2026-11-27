@@ -86,6 +86,7 @@ const CVE_FIELDS = [
 
 const MUTATION_FIELDS = [
   ['error_pattern', (v) => isNonEmptyString(v) && isRegex(v), 'a valid regular expression'],
+  ['build_error_pattern', (v) => isNonEmptyString(v) && isRegex(v), 'a valid regular expression'],
 ];
 
 const HOST_FIELDS = [

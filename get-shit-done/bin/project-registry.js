@@ -20,6 +20,7 @@ const {
 const { withLock } = require('./project-lock.js');
 const { DEPLOY_SLOTS } = require('./project-profile-keys.js');
 const { fillContract } = require('./ui-qa-driver.js');
+const { gateDefaults, withTableDefaults } = require('./profile-defaults.js');
 
 const NEIGHBOUR_DISTANCE = 100;
 const ENGINE_FLAGS = new Set(['--root', '--preset', '--preset-dir']);
@@ -89,18 +90,6 @@ function deploySlots(neverTouch) {
   ]));
 }
 
-// Default gates appended to stack.gates by id when absent, in this order. assertion-quality needs the web_ui capability.
-const DEFAULT_GATES = [
-  { id: 'hook-canaries', run: 'scripts/validation/hook-canaries/run-canaries.sh' },
-  { id: 'hook-patch-trailer', run: 'scripts/validation/hook-patch-trailer-check.sh' },
-  { id: 'guard-canaries', run: 'node scripts/validation/canary-gate.mjs' },
-  { id: 'guard-registry', run: 'node scripts/validation/guard-registry-reconcile.mjs' },
-  { id: 'style', run: 'node scripts/style-gate.mjs' },
-  { id: 'flake-patterns', run: 'node .claude/hooks/lib/flake-gate.mjs --all' },
-  { id: 'dependency-scan', run: 'node scripts/dependency-scan-gate.mjs' },
-  { id: 'adr', run: 'node scripts/validation/adr-reconcile.mjs' },
-  { id: 'assertion-quality', run: 'node scripts/validation/check-assertion-quality.mjs', capability: 'web_ui' },
-];
 const DEFAULT_STYLE = { rule_set: 'generic', roots: ['.'] };
 const SOURCE_EXT = { 'js-ts': ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx'], python: ['.py'] };
 const LANGUAGE_MARKERS = { 'js-ts': ['package.json', 'tsconfig.json'], python: ['pyproject.toml', 'requirements.txt', 'setup.py'] };
@@ -125,14 +114,12 @@ function detectRuleSet(root) {
   return counts.python > counts['js-ts'] ? 'python' : 'js-ts';
 }
 
-// An existing gate with the same id is never changed and none is removed; a non-array stack.gates is left for validation.
+// The default gates come from the profile-defaults table. An existing gate with the same id is never changed and none is
+// removed; a non-array stack.gates is left for validation.
 function withDefaultGates(gates, capabilities, commands) {
   if (gates !== undefined && !Array.isArray(gates)) return gates;
   const current = gates ?? [];
-  const wanted = DEFAULT_GATES
-    .filter((g) => g.capability === undefined || isObject(capabilities?.[g.capability]))
-    .filter((g) => !current.some((e) => isObject(e) && e.id === g.id))
-    .map(({ id, run }) => ({ id, run }));
+  const wanted = gateDefaults(capabilities).filter((g) => !current.some((e) => isObject(e) && e.id === g.id));
   return [...current, ...wanted, ...unusedCodeGate(current, commands)];
 }
 
@@ -143,12 +130,12 @@ function unusedCodeGate(current, commands) {
   return [{ id: 'unused-code', run }];
 }
 
-// Sync and diff: appends the unused-code gate when the key is set and the gate is absent; nothing else in stack.gates changes.
-function withUnusedCodeGate(config) {
-  const { gates, commands } = config.stack;
+// Sync and diff: appends the missing default gates and the unused-code gate; an existing entry is never changed.
+function withMissingGates(config) {
+  const { gates, commands, capabilities } = config.stack;
   if (!Array.isArray(gates)) return config;
-  const added = unusedCodeGate(gates, commands);
-  return added.length === 0 ? config : { ...config, stack: { ...config.stack, gates: [...gates, ...added] } };
+  const next = withDefaultGates(gates, capabilities, commands);
+  return next.length === gates.length ? config : { ...config, stack: { ...config.stack, gates: next } };
 }
 
 // Adds slug, port_base and the base defaults where absent. Never creates stack.capabilities or adds ui_qa; an existing
@@ -165,19 +152,19 @@ function applyToConfig(config, { slug, port_base: portBase, root }) {
   const filled = fill(stack.capabilities, { backend: {}, web_ui: {} });
   const capabilities = isObject(filled) && isObject(filled.ui_qa) ? { ...filled, ui_qa: fillContract(filled.ui_qa) } : filled;
   const commands = fill(stack.commands, { search: 'git grep -n', pre_pr_gate: 'scripts/pre-pr-gate.sh' });
+  const withDefaults = withTableDefaults({
+    ...stack,
+    isolation: fill(stack.isolation, { port_base: portBase, container_suffix: slug }),
+    branch: fill(stack.branch, { default: 'main' }),
+    commands,
+    capabilities,
+    style: stack.style === undefined ? { ...DEFAULT_STYLE, rule_set: root === undefined ? DEFAULT_STYLE.rule_set : detectRuleSet(root) } : stack.style,
+    deploy: { ...(isObject(stack.deploy) ? stack.deploy : {}), ...deploySlots(neverTouch) },
+  });
   return {
     ...config,
     project: fill(config.project, { owner_title: 'owner' }),
-    stack: {
-      ...stack,
-      isolation: fill(stack.isolation, { port_base: portBase, container_suffix: slug }),
-      branch: fill(stack.branch, { default: 'main' }),
-      commands,
-      capabilities,
-      style: stack.style === undefined ? { ...DEFAULT_STYLE, rule_set: root === undefined ? DEFAULT_STYLE.rule_set : detectRuleSet(root) } : stack.style,
-      gates: withDefaultGates(stack.gates, capabilities, commands),
-      deploy: { ...(isObject(stack.deploy) ? stack.deploy : {}), ...deploySlots(neverTouch) },
-    },
+    stack: { ...withDefaults, gates: withDefaultGates(stack.gates, capabilities, commands) },
   };
 }
 
@@ -232,7 +219,7 @@ function syncSlots(root) {
     return null;
   }
   if (!isObject(config) || !isObject(config.stack)) return null;
-  const next = withUnusedCodeGate(withRederivedSlots(config));
+  const next = withMissingGates(withRederivedSlots(config));
   if (next === config) return null;
   writeJson(file, next);
   return before;

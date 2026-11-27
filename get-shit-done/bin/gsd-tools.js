@@ -15159,6 +15159,10 @@ async function main() {
     case 'profile': {
       const r = projectProfile.runCli(cwd, args.slice(1));
       if (r.error) error(r.error);
+      if (r.text !== undefined) {
+        writeStdoutSync(r.text);
+        process.exit(r.exitCode);
+      }
       if (r.exitCode !== 0) {
         writeStdoutSync(JSON.stringify(r.result, null, 2));
         process.exit(r.exitCode);

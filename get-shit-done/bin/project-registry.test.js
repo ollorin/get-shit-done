@@ -683,3 +683,41 @@ describe('9.13 default gates and style config', () => {
     assert.deepStrictEqual(again.stack.gates, pure.stack.gates);
   });
 });
+
+describe('WP18 defaults table in init and sync', () => {
+  const initBase = (config) => {
+    const home = mkTmp('gsd-registry-home-');
+    const root = makeProject(config);
+    const r = runProject(['init', '--root', root, '--preset', 'base'], home);
+    assert.strictEqual(r.status, 0, r.stderr);
+    return { root, home };
+  };
+
+  test('init fills the absent table defaults, keeps the values the project set, and fills no runner-specific key', () => {
+    const { root } = initBase({ project: { slug: 'demo' }, stack: { capabilities: { web_ui: {} }, isolation: { lock_dir: 'mine' }, mutation: { timeout_s: 300 } } });
+    const cfg = configOf(root);
+    assert.strictEqual(cfg.stack.isolation.lock_dir, 'mine');
+    assert.strictEqual(cfg.stack.mutation.timeout_s, 300);
+    assert.deepStrictEqual(cfg.stack.mutation.test_env, {});
+    assert.strictEqual(cfg.stack.mutation.build_error_pattern, undefined);
+    assert.strictEqual(cfg.stack.commands.test_file, undefined);
+    const fresh = configOf(initBase({ project: { slug: 'fresh' }, stack: { capabilities: {} } }).root);
+    assert.strictEqual(fresh.stack.isolation.lock_dir, '.tmp/stack.lock.d');
+  });
+
+  test('sync appends the default gates a project lacks after its own entries, keeps set values, and is idempotent', () => {
+    const { root, home } = initBase({ project: { slug: 'demo' }, stack: { capabilities: { web_ui: {} } } });
+    const cfg = configOf(root);
+    cfg.stack.gates = cfg.stack.gates
+      .filter((g) => !['hook-patch-trailer', 'assertion-quality'].includes(g.id))
+      .map((g) => (g.id === 'style' ? { ...g, run: 'custom' } : g));
+    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(cfg, null, 2));
+    const r = runProject(['sync', '--root', root, '--preset', 'base'], home);
+    assert.strictEqual(r.status, 0, r.stdout);
+    const synced = configOf(root).stack.gates;
+    assert.deepStrictEqual(synced.slice(-2).map((g) => g.id), ['hook-patch-trailer', 'assertion-quality']);
+    assert.deepStrictEqual(synced.find((g) => g.id === 'style'), { id: 'style', run: 'custom' });
+    runProject(['sync', '--root', root, '--preset', 'base'], home);
+    assert.deepStrictEqual(configOf(root).stack.gates, synced);
+  });
+});

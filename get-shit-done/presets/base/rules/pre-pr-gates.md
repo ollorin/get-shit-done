@@ -21,22 +21,12 @@ The "before claiming done" checklist (check, lint, format, style gate, type chec
 
 The PR-time requirement above is unchanged. Earlier in a phase, cost is bounded:
 
-1. **Inside a plan and in fix loops:** run only the affected test files (`stack.commands.test_file`, with the `{file}` placeholder) plus the single suite that contains them (`stack.commands.test_bucket`), once. No full pre-PR gate inside a plan.
+1. **Inside a plan and in fix loops:** run only the affected test files (`stack.commands.test_file`, with the `{file}` placeholder), once. No full pre-PR gate inside a plan.
 2. **One full pre-PR gate per phase**, on the final phase tree, before the final phase review. After fixing its findings, rerun only what the fixes touch.
 3. **"Tests green twice" over all suites runs once, at phase end or before the PR**, not per plan.
-4. **Cheap gates run on their own, early:** `stack.commands.coverage_gate` for touched code, the type check, lint, formatting and the style gate. The phase-final full run stays mandatory: it catches cross-module breakage (a formatting rule against a pinned test, a contract change against another plan's test).
+4. **Cheap gates run on their own, early:** the type check, lint, formatting and the style gate. The phase-final full run stays mandatory: it catches cross-module breakage (a formatting rule against a pinned test, a contract change against another plan's test).
 
 Why: each full gate run holds the shared stack lock for a long time. Five full runs in one phase starved a parallel phase for about an hour.
-
-### Coverage ratchet: the floor moves only up, and only in a PR
-
-- The coverage baseline file is git-tracked and records each domain's last-measured line coverage. The gate (`stack.commands.coverage_gate`) fails any change that drops a domain below its recorded floor. It never runs with write access.
-- To **raise** the floor after a real improvement, run `stack.commands.coverage_update`. It ratchets the baseline up only. **Review the diff** and commit the updated baseline **in the same PR** as the change that earned it.
-- Never hand-edit a value downward. If real coverage regresses, fix the regression; do not lower the floor.
-- The floor is never updated by a CI bot on the main branch. Such a bot needs a write token, couples coverage bookkeeping to deploys, and can lock in a fluke-high measurement.
-- **Deleting redundant tests is allowed** when the floor still holds, or when the uncovered lines are a pure barrel (only re-export statements). Until a reviewed exclusion list exists, deleting a test must not drop a domain below its baseline.
-
-Run coverage locally with the profile keys above: `stack.commands.test_all` (unit tests and coverage collection), `stack.commands.coverage_gate` (floor check only), `stack.commands.coverage_update` (ratchet up only, review the diff), and the coverage report command.
 
 ## Enforcement
 

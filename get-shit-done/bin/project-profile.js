@@ -9,6 +9,7 @@ const {
   NEW_STACK_KEYS, NEW_SHAPE_CHECKS, RENDERED_TEXT_MAX, isRenderedText,
 } = require('./project-profile-keys.js');
 const uiQaDrivers = require('./ui-qa-driver.js');
+const { doctorFindings, doctorLines, isBlocking } = require('./profile-defaults.js');
 
 const REQUIRED_KEYS = Object.freeze([
   'project.slug',
@@ -20,7 +21,7 @@ const REQUIRED_KEYS = Object.freeze([
 
 const KNOWN_PROJECT_KEYS = ['slug', 'owner_title', 'risk_domains', 'ruling_topics'];
 const KNOWN_STACK_KEYS = ['preset', 'preset_version', 'paths', 'commands', 'test_command_shapes', 'gates', 'services', 'capabilities', 'isolation', 'branch', ...NEW_STACK_KEYS];
-const KNOWN_COMMAND_KEYS = Object.freeze(['test_file', 'test_all', 'typecheck', 'lint', 'format', 'frontend_test', 'build', 'pre_pr_gate', 'search', 'test_timing', 'residue_check', 'unused_code']);
+const KNOWN_COMMAND_KEYS = Object.freeze(['test_file', 'test_all', 'test_unit', 'typecheck', 'lint', 'format', 'frontend_test', 'build', 'pre_pr_gate', 'search', 'test_timing', 'residue_check', 'unused_code']);
 // A greenfield project has nothing to run yet: null or the literal 'none' acknowledges that for these four commands.
 // It passes the gate with a warning and is skipped visibly by consumers; it is never the silent pass a literal `true` is.
 const ACKNOWLEDGEABLE_COMMANDS = Object.freeze(['test_file', 'test_all', 'typecheck', 'lint']);
@@ -286,12 +287,26 @@ function validateProfile(profile) {
   return report(configFound, missing, [...topLevel, ...shape], [...unknownKeyWarnings(profile), ...notConfiguredWarnings(profile)]);
 }
 
+// Compares the project's stack block with the defaults table; exit 1 only for a missing or stale key of severity error.
+function doctor(cwd) {
+  const profile = loadProfile(cwd);
+  if (profile.error || !profile.found) {
+    const reason = profile.error ?? 'not found';
+    return { exitCode: 1, result: { ok: false, reason }, text: `ERROR .planning/config.json: ${reason}\n` };
+  }
+  const findings = doctorFindings(profile.stack ?? {});
+  const lines = findings.length === 0 ? ['OK no missing, stale or differing keys'] : doctorLines(findings);
+  const exitCode = findings.some(isBlocking) ? 1 : 0;
+  return { exitCode, result: { ok: exitCode === 0 }, text: `${lines.join('\n')}\n` };
+}
+
 function runCli(cwd, args) {
   const [sub, key] = args;
   if (sub === 'check') {
     const result = validateProfile(loadProfile(cwd));
     return { exitCode: result.ok ? 0 : 1, result };
   }
+  if (sub === 'doctor') return doctor(cwd);
   if (sub === 'get') {
     if (typeof key !== 'string' || !/^(project|stack)(\.|$)/.test(key)) {
       return { exitCode: 1, error: 'profile keys start with project. or stack.' };

@@ -16,6 +16,7 @@ The block below is written from `.planning/config.json` `stack.commands` when th
 |-----|---------|
 | test_file | [stack.commands.test_file, or `not configured yet` when none/null] |
 | test_all | [stack.commands.test_all, or `not configured yet`] |
+| test_unit | [stack.commands.test_unit, optional: hook-free unit lane] |
 | typecheck | [stack.commands.typecheck, or `not configured yet`] |
 | lint | [stack.commands.lint, or `not configured yet`] |
 | format | [stack.commands.format] |

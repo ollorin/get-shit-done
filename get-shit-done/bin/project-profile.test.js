@@ -646,3 +646,75 @@ describe('agnostic-M-03 3.8 C12: branch names and rendered length', () => {
     assert.deepStrictEqual(keysOf({ owner_title: 'a'.repeat(81) }, {}), ['project.owner_title']);
   });
 });
+
+describe('profile doctor (WP18)', () => {
+  const GATES = [
+    ['hook-canaries', 'scripts/validation/hook-canaries/run-canaries.sh'],
+    ['hook-patch-trailer', 'scripts/validation/hook-patch-trailer-check.sh'],
+    ['guard-canaries', 'node scripts/validation/canary-gate.mjs'],
+    ['guard-registry', 'node scripts/validation/guard-registry-reconcile.mjs'],
+    ['style', 'node scripts/style-gate.mjs'],
+    ['flake-patterns', 'node .claude/hooks/lib/flake-gate.mjs --all'],
+    ['dependency-scan', 'node scripts/dependency-scan-gate.mjs'],
+    ['adr', 'node scripts/validation/adr-reconcile.mjs'],
+    ['assertion-quality', 'node scripts/validation/check-assertion-quality.mjs'],
+  ].map(([id, run]) => ({ id, run }));
+
+  const completeStack = () => ({
+    capabilities: { backend: {}, web_ui: {} },
+    commands: {
+      test_file: 'npm test -- {file}', test_all: 'npm test', typecheck: 'tsc --noEmit', lint: 'eslint .',
+      format: 'prettier --check .', test_unit: 'npm run test:unit',
+    },
+    locked_commands: ['npm test'],
+    test_command_shapes: ['npm test'],
+    isolation: { port_base: 55000, lock_dir: '.tmp/stack.lock.d' },
+    mutation: { build_error_pattern: 'Cannot find module', test_cmd: 'npm test -- {file}', test_env: {}, timeout_s: 120 },
+    host: { worker_patterns: ['vitest'] },
+    paths: { backend: 'src', migrations: 'db/migrations', frontends: ['web'] },
+    gates: GATES,
+  });
+
+  function doctorOn(stack) {
+    const dir = mkTmp();
+    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ stack }));
+    return spawnSync(process.execPath, [GSD_TOOLS, 'profile', 'doctor'], { cwd: dir, encoding: 'utf-8' });
+  }
+
+  test('a complete config exits 0 and prints only the OK line', () => {
+    const r = doctorOn(completeStack());
+    assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+    assert.strictEqual(r.stdout.trim(), 'OK no missing, stale or differing keys');
+  });
+
+  test('a missing error key exits 1 and prints one MISSING line with its scope and severity', () => {
+    const stack = completeStack();
+    delete stack.commands.lint;
+    const r = doctorOn(stack);
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stdout, /^MISSING stack\.commands\.lint -> \(none: needs runner config\) \(error: /m);
+  });
+
+  test('a stale error_pattern key exits 1 and names build_error_pattern as its replacement', () => {
+    const stack = completeStack();
+    stack.mutation.error_pattern = 'Cannot find module';
+    const r = doctorOn(stack);
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stdout, /^STALE stack\.mutation\.error_pattern -> stack\.mutation\.build_error_pattern \(error: /m);
+  });
+
+  test('a missing warn key alone exits 0 and still prints its MISSING line', () => {
+    const stack = completeStack();
+    delete stack.commands.format;
+    const r = doctorOn(stack);
+    assert.strictEqual(r.status, 0);
+    assert.match(r.stdout, /^MISSING stack\.commands\.format -> \(none: needs runner config\) \(warn: /m);
+  });
+
+  test('a project with no config exits 1 with one ERROR line', () => {
+    const r = spawnSync(process.execPath, [GSD_TOOLS, 'profile', 'doctor'], { cwd: mkTmp(), encoding: 'utf-8' });
+    assert.strictEqual(r.status, 1);
+    assert.strictEqual(r.stdout.trim(), 'ERROR .planning/config.json: not found');
+  });
+});
