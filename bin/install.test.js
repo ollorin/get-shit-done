@@ -906,7 +906,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     const before = snapshotOf(claude);
     const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
     simulateInstall(claude);
-    assert.strictEqual(recordModule().closeRecord(recordDir).status, 'closed');
+    assert.strictEqual(recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] }).status, 'closed');
     const first = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
     assert.strictEqual(first.status, 'rolled-back');
     assert.deepStrictEqual(snapshotOf(claude), before);
@@ -948,10 +948,26 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
   }));
 
   // Subprocess cases: HOME is the temp home, so the real ~/.claude and ~/.gsd are never read or written.
-  const runGlobalCli = (home, env) => require('child_process').spawnSync(
-    process.execPath, [INSTALL_JS_PATH, '--global', '--claude'],
+  const runCli = (home, args, env) => require('child_process').spawnSync(
+    process.execPath, [INSTALL_JS_PATH, ...args],
     { encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: '', ...env, HOME: home } },
   );
+  const runGlobalCli = (home, env) => runCli(home, ['--global', '--claude'], env);
+  const newFileOf = (claude) => path.join(claude, 'get-shit-done', 'new.js');
+  const withEnv = (vars, fn) => {
+    const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, vars);
+    try { return fn(); } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+  };
+  const withCwd = (dir, fn) => {
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try { return fn(); } finally { process.chdir(cwd); }
+  };
 
   test('global install from an agent environment is refused before any write', () => withHome((home) => {
     seedClaudeDir(home);
@@ -970,5 +986,168 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     assert.strictEqual(run.status, 1);
     assert.match(run.stdout + run.stderr, /not valid JSON/);
     assert.deepStrictEqual(snapshotOf(home), before);
+  }));
+
+  // WP22a review: every user-scope path is guarded, every config file is parsed before the first write, the record is complete.
+  test('a local install whose target is the global dir is user scope: an agent session refuses it', () => withHome((home) => {
+    seedClaudeDir(home);
+    withEnv({ HOME: home, CLAUDE_CONFIG_DIR: '' }, () => withCwd(home, () => {
+      const { refusal } = installer().runRefusal({ runtimes: ['claude'], isGlobal: false, env: { CLAUDECODE: '1' }, session: GOOD });
+      assert.deepStrictEqual(refusal.failed, ['env']);
+    }));
+  }));
+
+  test('uninstall --global from an agent environment is refused before any removal', () => withHome((home) => {
+    seedClaudeDir(home);
+    const before = snapshotOf(home);
+    const run = runCli(home, ['--global', '--claude', '--uninstall'], { CLAUDECODE: '1' });
+    assert.strictEqual(run.status, 1);
+    assert.match(run.stdout + run.stderr, /Install refused/);
+    assert.deepStrictEqual(snapshotOf(home), before);
+  }));
+
+  test('a corrupt global settings.json refuses a local install before any write', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    fs.writeFileSync(path.join(claude, 'settings.json'), '{"hooks": ');
+    const project = createScratchDir('gsd-wp22a-project-');
+    try {
+      withEnv({ HOME: home, CLAUDE_CONFIG_DIR: '' }, () => withCwd(project, () => {
+        const { refusal } = installer().runRefusal({ runtimes: ['claude'], isGlobal: false, env: {}, session: GOOD });
+        assert.deepStrictEqual(refusal.paths, [path.join(claude, 'settings.json')]);
+      }));
+    } finally { cleanup(project); }
+  }));
+
+  test('opencode.json: a corrupt file refuses the install; a JSONC file with comments is accepted', () => withHome((home) => {
+    const config = path.join(home, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(config));
+    const project = createScratchDir('gsd-wp22a-project-');
+    try {
+      withEnv({ OPENCODE_CONFIG_DIR: path.dirname(config) }, () => withCwd(project, () => {
+        const check = () => installer().runRefusal({ runtimes: ['opencode'], isGlobal: false, env: {}, session: GOOD });
+        fs.writeFileSync(config, '{ "permission": ');
+        assert.deepStrictEqual(check().refusal.paths, [config]);
+        fs.writeFileSync(config, '// kept by the owner\n{ "permission": {}, /* jsonc */ "model": "x", }\n');
+        assert.strictEqual(check().refusal, null);
+        assert.deepStrictEqual(installer().readOpencodeConfig(config), { permission: {}, model: 'x' });
+      }));
+    } finally { cleanup(project); }
+  }));
+
+  test('pre-images cover gsd-local-patches and skills, and skip node_modules', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const patch = path.join(claude, 'gsd-local-patches', 'a.md');
+    const skill = path.join(claude, 'skills', 'task-context', 'SKILL.md');
+    const dep = path.join(claude, 'get-shit-done', 'node_modules', 'pkg', 'index.js');
+    for (const file of [patch, skill, dep]) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, 'x\n');
+    }
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    const paths = JSON.parse(fs.readFileSync(path.join(recordDir, 'record.json'), 'utf8')).entries.map((e) => e.path);
+    assert.ok(paths.includes(patch));
+    assert.ok(paths.includes(skill));
+    assert.ok(!paths.includes(dep));
+  }));
+
+  test('symlinks are recorded, and rollback restores them as links', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const link = path.join(claude, 'get-shit-done', 'link.js');
+    fs.symlinkSync('a.js', link);
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    fs.rmSync(link);
+    fs.writeFileSync(link, 'replaced\n');
+    recordModule().closeRecord(recordDir);
+    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+    assert.strictEqual(fs.readlinkSync(link), 'a.js');
+  }));
+
+  test('rollback deletes only files the record lists as created: a foreign file and node_modules written during the install survive', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    const foreign = path.join(claude, 'get-shit-done', 'mine.js');
+    const dep = path.join(claude, 'get-shit-done', 'node_modules', 'pkg', 'index.js');
+    fs.writeFileSync(foreign, 'mine\n');
+    fs.mkdirSync(path.dirname(dep), { recursive: true });
+    fs.writeFileSync(dep, 'dep\n');
+    recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] });
+    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+    assert.strictEqual(fs.readFileSync(foreign, 'utf8'), 'mine\n');
+    assert.strictEqual(fs.readFileSync(dep, 'utf8'), 'dep\n');
+    assert.strictEqual(fs.existsSync(newFileOf(claude)), false);
+  }));
+
+  test('ownedFilesOf lists the package files an install writes under the target', () => withHome((home) => {
+    const claude = path.join(home, '.claude');
+    const owned = recordModule().ownedFilesOf(claude, REPO_ROOT);
+    assert.ok(owned.includes(path.join(claude, 'agents', 'gsd-ui-qa.md')));
+    assert.ok(owned.includes(path.join(claude, 'settings.json')));
+    assert.ok(owned.every((file) => file.startsWith(claude + path.sep)));
+  }));
+
+  test('a SIGTERM during an install closes the open record', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const script = `
+      const fs = require('fs');
+      const r = require(${JSON.stringify(path.join(__dirname, 'install-record.js'))});
+      const dir = r.openRecord({ targetDirs: [${JSON.stringify(claude)}], homeDir: ${JSON.stringify(home)} });
+      r.closeOnExit(dir, []);
+      fs.writeFileSync(${JSON.stringify(path.join(claude, 'settings.json'))}, 'changed\\n');
+      process.kill(process.pid, 'SIGTERM');
+      setTimeout(() => {}, 10000);
+    `;
+    require('child_process').spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 20000, env: { ...process.env, HOME: home } });
+    const upgrades = path.join(home, '.gsd', 'upgrades');
+    const [name] = fs.readdirSync(upgrades);
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(upgrades, name, 'record.json'), 'utf8')).status, 'closed');
+  }));
+
+  test('rollback takes the newest closed record when a later record never closed', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const before = snapshotOf(claude);
+    const base = Date.parse('2026-11-27T10:00:00Z');
+    const closed = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base) });
+    simulateInstall(claude);
+    recordModule().closeRecord(closed, { owned: [newFileOf(claude)] });
+    recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base + 1000) });
+    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+    assert.deepStrictEqual(snapshotOf(claude), before);
+  }));
+
+  test('the upgrades directory keeps the newest five records', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const base = Date.parse('2026-11-27T10:00:00Z');
+    for (let i = 0; i < 7; i += 1) {
+      recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base + i * 1000) });
+    }
+    const names = fs.readdirSync(path.join(home, '.gsd', 'upgrades')).sort();
+    assert.strictEqual(names.length, 5);
+    assert.strictEqual(names.at(-1), '2026-11-27T10-00-06-000Z');
+  }));
+
+  test('a record whose install changed nothing is removed on close', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    assert.strictEqual(recordModule().closeRecord(recordDir).status, 'unchanged');
+    assert.strictEqual(fs.existsSync(recordDir), false);
+  }));
+
+  test('stageAndSwap: a failed swap puts the old tree back so a live tree exists', () => withHome((home) => {
+    const live = path.join(home, 'get-shit-done');
+    fs.mkdirSync(live);
+    fs.writeFileSync(path.join(live, 'a.js'), 'old\n');
+    let calls = 0;
+    const flakyRename = (from, to) => {
+      calls += 1;
+      if (calls === 2) throw new Error('simulated swap failure');
+      fs.renameSync(from, to);
+    };
+    assert.throws(() => installer().stageAndSwap(live, (stage) => {
+      fs.mkdirSync(stage);
+      fs.writeFileSync(path.join(stage, 'a.js'), 'new\n');
+    }, flakyRename), /simulated swap failure/);
+    assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'old\n');
+    assert.strictEqual(fs.existsSync(`${live}.next`), false);
   }));
 });

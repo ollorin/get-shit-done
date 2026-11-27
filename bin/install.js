@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { execSync, execFileSync } = require('child_process');
 const { refusalOf } = require('../get-shit-done/bin/project-deploy-guard.js');
 const { detectSession } = require('../get-shit-done/bin/project-deploy-session.js');
-const { openRecord, closeRecord } = require('./install-record.js');
+const { openRecord, closeOnExit, ownedFilesOf } = require('./install-record.js');
 
 // Colors
 const cyan = '\x1b[36m';
@@ -187,16 +187,25 @@ function buildHookCommand(configDir, hookName) {
 }
 
 /**
- * Read and parse settings.json, returning empty object if it doesn't exist.
- * A file that is not valid JSON throws: callers must never overwrite it with defaults.
+ * Read and parse a config file, returning empty object if it doesn't exist.
+ * A file that does not parse throws: callers must never overwrite it with defaults.
  */
-function readSettings(settingsPath) {
-  if (!fs.existsSync(settingsPath)) return {};
+function readConfig(configPath, parse) {
+  if (!fs.existsSync(configPath)) return {};
   try {
-    return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    return parse(fs.readFileSync(configPath, 'utf8'));
   } catch (e) {
-    throw new Error(`${settingsPath} is not valid JSON`);
+    throw new Error(`${configPath} is not valid JSON`);
   }
+}
+
+function readSettings(settingsPath) {
+  return readConfig(settingsPath, JSON.parse);
+}
+
+// OpenCode accepts JSONC (comments, trailing commas), so its config is read with the same parser the refusal check uses.
+function readOpencodeConfig(configPath) {
+  return readConfig(configPath, parseJsonc);
 }
 
 /**
@@ -210,35 +219,62 @@ function writeSettings(settingsPath, settings) {
 
 const SETTINGS_FILES = ['settings.json', 'settings.local.json'];
 
-function isValidJsonFile(filePath) {
-  if (!fs.existsSync(filePath)) return true;
+function globalConfigOf(runtime) {
+  return runtime === 'opencode'
+    ? { file: path.join(getOpencodeGlobalDir(), 'opencode.json'), parse: parseJsonc }
+    : { file: path.join(getGlobalDir(runtime, explicitConfigDir), 'settings.json'), parse: JSON.parse };
+}
+
+/**
+ * Config files a run reads: each target's own settings, and each runtime's global config
+ * (getCommitAttribution reads the global file even for a local install).
+ */
+function configFilesOf(runtimes, targetDirs) {
+  return [
+    ...targetDirs.flatMap((dir) => SETTINGS_FILES.map((name) => ({ file: path.join(dir, name), parse: JSON.parse }))),
+    ...runtimes.map(globalConfigOf),
+  ];
+}
+
+function isValidConfig({ file, parse }) {
   try {
-    JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    readConfig(file, parse);
     return true;
   } catch (e) {
     return false;
   }
 }
 
+// Realpath of a path that may not exist yet: the deepest existing ancestor is resolved, the rest appended.
+function realpathOf(target) {
+  const abs = path.resolve(target);
+  if (fs.existsSync(abs)) return fs.realpathSync(abs);
+  const parent = path.dirname(abs);
+  return parent === abs ? abs : path.join(realpathOf(parent), path.basename(abs));
+}
+
+// A local install from $HOME targets the global directory too, so it is user scope.
+function isUserScope(runtime, isGlobal, targetDir) {
+  return isGlobal || realpathOf(targetDir) === realpathOf(getGlobalDir(runtime, explicitConfigDir));
+}
+
 /**
- * Refusal before any write: a settings file that is not valid JSON (any install), or an agent session
- * (user-scope installs only: the shared ~/.claude is what the guard protects). Null when the install may proceed.
+ * Refusal before any write: a config file that does not parse (any run), or an agent session
+ * (user-scope targets only: the shared ~/.claude is what the guard protects). Null when the run may proceed.
  */
-function refuseInstall({ targetDirs, userScope, env, session }) {
-  const corrupt = targetDirs
-    .flatMap((dir) => SETTINGS_FILES.map((name) => path.join(dir, name)))
-    .filter((file) => !isValidJsonFile(file));
+function refuseInstall({ targetDirs, runtimes = [], userScope, env, session }) {
+  const corrupt = configFilesOf(runtimes, targetDirs).filter((config) => !isValidConfig(config)).map(({ file }) => file);
   if (corrupt.length > 0) {
-    return { reason: 'settings file is not valid JSON; fix or move it, nothing was written', paths: corrupt, failed: [] };
+    return { reason: 'config file is not valid JSON; fix or move it, nothing was written', paths: corrupt, failed: [] };
   }
   return userScope ? refusalOf({ command: 'install', guarded: targetDirs, env, session }) : null;
 }
 
 /**
  * Build a tree in `<liveDir>.next`, then swap it in (the old tree becomes `<liveDir>.prev`).
- * A failed build removes the staging tree and leaves the live tree as it was.
+ * A failed build removes the staging tree and leaves the live tree as it was; a failed swap puts the old tree back.
  */
-function stageAndSwap(liveDir, build) {
+function stageAndSwap(liveDir, build, rename = fs.renameSync) {
   const stageDir = `${liveDir}.next`;
   const prevDir = `${liveDir}.prev`;
   fs.rmSync(stageDir, { recursive: true, force: true });
@@ -249,8 +285,15 @@ function stageAndSwap(liveDir, build) {
     throw err;
   }
   fs.rmSync(prevDir, { recursive: true, force: true });
-  if (fs.existsSync(liveDir)) fs.renameSync(liveDir, prevDir);
-  fs.renameSync(stageDir, liveDir);
+  const hadLive = fs.existsSync(liveDir);
+  if (hadLive) rename(liveDir, prevDir);
+  try {
+    rename(stageDir, liveDir);
+  } catch (err) {
+    if (hadLive) fs.renameSync(prevDir, liveDir);
+    fs.rmSync(stageDir, { recursive: true, force: true });
+    throw err;
+  }
 }
 
 // Cache for attribution settings (populated once per runtime during install)
@@ -270,7 +313,7 @@ function getCommitAttribution(runtime) {
   let result;
 
   if (runtime === 'opencode') {
-    const config = readSettings(path.join(getGlobalDir('opencode', null), 'opencode.json'));
+    const config = readOpencodeConfig(path.join(getGlobalDir('opencode', null), 'opencode.json'));
     result = config.disable_ai_attribution === true ? null : undefined;
   } else if (runtime === 'gemini') {
     // Gemini: check gemini settings.json for attribution config
@@ -2100,23 +2143,37 @@ function targetDirOf(runtime, isGlobal) {
 }
 
 /**
- * Install GSD for all selected runtimes
+ * Checks every run that writes or removes files (install and uninstall): {userDirs, refusal}.
+ * userDirs are the targets in user scope; refusal is null when the run may proceed.
  */
-function installAllRuntimes(runtimes, isGlobal, isInteractive) {
+function runRefusal({ runtimes, isGlobal, env, session }) {
   const targetDirs = runtimes.map((runtime) => targetDirOf(runtime, isGlobal));
-  const refusal = refuseInstall({ targetDirs, userScope: isGlobal, env: process.env, session: detectSession() });
+  const userDirs = targetDirs.filter((dir, i) => isUserScope(runtimes[i], isGlobal, dir));
+  const refusal = refuseInstall({ targetDirs, runtimes, userScope: userDirs.length > 0, env, session });
+  return { userDirs, refusal };
+}
+
+// Exits before the first write when refused; otherwise opens the rollback record for user-scope targets.
+function beginRun(runtimes, isGlobal) {
+  const { userDirs, refusal } = runRefusal({ runtimes, isGlobal, env: process.env, session: detectSession() });
   if (refusal) {
     const checks = refusal.failed.length > 0 ? [`checks failed: ${refusal.failed.join(', ')}`] : [];
     console.error(`  ${yellow}Install refused:${reset} ${refusal.reason}`);
     for (const line of [...refusal.paths, ...checks]) console.error(`    ${line}`);
     process.exit(1);
   }
-  if (isGlobal) {
-    // Closed on every exit path, so a failed run still has a rollback point.
-    const recordDir = openRecord({ targetDirs, homeDir: os.homedir() });
-    process.once('exit', () => closeRecord(recordDir));
+  if (userDirs.length > 0) {
+    const recordDir = openRecord({ targetDirs: userDirs, homeDir: os.homedir() });
+    closeOnExit(recordDir, userDirs.flatMap((dir) => ownedFilesOf(dir, path.join(__dirname, '..'))));
     console.log(`  ${dim}Backup record: ${recordDir}${reset}\n`);
   }
+}
+
+/**
+ * Install GSD for all selected runtimes
+ */
+function installAllRuntimes(runtimes, isGlobal, isInteractive) {
+  beginRun(runtimes, isGlobal);
 
   const results = [];
 
@@ -2172,6 +2229,7 @@ if (require.main === module) {
       process.exit(1);
     }
     const runtimes = selectedRuntimes.length > 0 ? selectedRuntimes : ['claude'];
+    beginRun(runtimes, hasGlobal);
     for (const runtime of runtimes) {
       uninstall(hasGlobal, runtime);
     }
@@ -2184,17 +2242,14 @@ if (require.main === module) {
   } else if (hasGlobal || hasLocal) {
     // Default to Claude if no runtime specified but location is
     installAllRuntimes(['claude'], hasGlobal, false);
+  } else if (!process.stdin.isTTY) {
+    console.error(`  ${yellow}No install target and no terminal to ask.${reset} Pass --global or --local, with --claude, --opencode or --gemini.`);
+    process.exit(1);
   } else {
-    // Interactive
-    if (!process.stdin.isTTY) {
-      console.log(`  ${yellow}Non-interactive terminal detected, defaulting to Claude Code global install${reset}\n`);
-      installAllRuntimes(['claude'], true, false);
-    } else {
-      promptRuntime((runtimes) => {
-        promptLocation(runtimes);
-      });
-    }
+    promptRuntime((runtimes) => {
+      promptLocation(runtimes);
+    });
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir, readSettings, writeSettings, refuseInstall, stageAndSwap };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir, readSettings, readOpencodeConfig, writeSettings, refuseInstall, runRefusal, stageAndSwap };

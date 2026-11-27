@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
-// Upgrade record for a user-scope install. openRecord copies the pre-install bytes of every file the
-// install may write; closeRecord stores the post-install hashes; rollback restores the newest closed
-// record and leaves alone any file edited since. Paths are absolute. homeDir is a parameter so tests
-// run against a temp home.
+// Upgrade record for a user-scope install. openRecord copies the pre-install bytes of every file the install may
+// write; closeRecord stores post-install fingerprints (and deletes the record when nothing changed); rollback restores
+// the newest finished record and leaves alone any file edited since. Paths are absolute. homeDir is a parameter so
+// tests run against a temp home.
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -15,27 +15,44 @@ const { detectSession } = require('../get-shit-done/bin/project-deploy-session.j
 
 const RECORD_FILE = 'record.json';
 const PRE_DIR = 'pre';
-const SCOPE_DIRS = ['get-shit-done', 'commands', 'command', 'agents', 'hooks'];
+const KEEP_RECORDS = 5;
+const SCOPE_DIRS = ['get-shit-done', 'commands', 'command', 'agents', 'hooks', 'gsd-local-patches', 'skills'];
 const SCOPE_FILES = ['settings.json', 'settings.local.json', 'gsd-file-manifest.json', 'gsd-source-path.txt'];
+const OWNED_FILES = ['settings.json', 'gsd-file-manifest.json', 'gsd-source-path.txt'];
+const SKIPPED_DIRS = new Set(['node_modules']);
+const CLOSING_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 const upgradesRootOf = (homeDir) => path.join(homeDir, '.gsd', 'upgrades');
 const preImageOf = (recordDir, file) => path.join(recordDir, PRE_DIR, file);
-const readRecord = (recordDir) => JSON.parse(fs.readFileSync(path.join(recordDir, RECORD_FILE), 'utf8'));
-const writeRecord = (recordDir, record) => fs.writeFileSync(path.join(recordDir, RECORD_FILE), JSON.stringify(record, null, 2) + '\n');
+const recordFileOf = (recordDir) => path.join(recordDir, RECORD_FILE);
+const readRecord = (recordDir) => JSON.parse(fs.readFileSync(recordFileOf(recordDir), 'utf8'));
+const writeRecord = (recordDir, record) => fs.writeFileSync(recordFileOf(recordDir), JSON.stringify(record, null, 2) + '\n');
 const uniq = (list) => [...new Set(list)];
 const stampOf = (now) => now.toISOString().replace(/[:.]/g, '-');
+const sha256 = (content) => crypto.createHash('sha256').update(content).digest('hex');
 
-function sha256OrNull(file) {
-  if (!fs.existsSync(file)) return null;
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+function lstatOrNull(file) {
+  try {
+    return fs.lstatSync(file);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+// A symlink is fingerprinted by its target, so a link replaced by a file (or retargeted) counts as edited.
+function fingerprintOf(file) {
+  const st = lstatOrNull(file);
+  if (st === null) return null;
+  return st.isSymbolicLink() ? sha256(`symlink:${fs.readlinkSync(file)}`) : sha256(fs.readFileSync(file));
 }
 
 function listFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return listFiles(full);
-    return entry.isFile() ? [full] : [];
+    if (entry.isDirectory()) return SKIPPED_DIRS.has(entry.name) ? [] : listFiles(full);
+    return entry.isFile() || entry.isSymbolicLink() ? [full] : [];
   });
 }
 
@@ -46,13 +63,42 @@ function scopeOf(targetDir) {
   ];
 }
 
+// Files one install writes under a target, mirrored from the package. closeRecord treats a file as created by the
+// install only when it is listed here, so a foreign file that appears during the install is never rolled back.
+function ownedFilesOf(targetDir, pkgRoot) {
+  const mirrored = (from, to) => listFiles(path.join(pkgRoot, from))
+    .map((file) => path.join(targetDir, to, path.relative(path.join(pkgRoot, from), file)));
+  return [
+    ...mirrored('get-shit-done', 'get-shit-done'),
+    ...mirrored(path.join('commands', 'gsd'), path.join('commands', 'gsd')),
+    ...mirrored('agents', 'agents'),
+    ...mirrored(path.join('hooks', 'dist'), 'hooks'),
+    ...OWNED_FILES.map((file) => path.join(targetDir, file)),
+  ];
+}
+
+// Copies a file, or recreates a symlink as a symlink; never writes through an existing link at `to`.
+function copyEntry(from, to) {
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.rmSync(to, { force: true });
+  if (fs.lstatSync(from).isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to);
+  else fs.copyFileSync(from, to);
+}
+
 function backupEntry(recordDir, file) {
-  const pre = sha256OrNull(file);
-  if (pre !== null) {
-    fs.mkdirSync(path.dirname(preImageOf(recordDir, file)), { recursive: true });
-    fs.copyFileSync(file, preImageOf(recordDir, file));
-  }
+  const pre = fingerprintOf(file);
+  if (pre !== null) copyEntry(file, preImageOf(recordDir, file));
   return { path: file, pre_sha256: pre, post_sha256: null };
+}
+
+// Keeps the newest KEEP_RECORDS records (UTC stamps sort by time) and always keeps `keepDir`.
+function pruneRecords(root, keepDir) {
+  const older = fs.readdirSync(root)
+    .filter((name) => path.join(root, name) !== keepDir)
+    .sort()
+    .reverse()
+    .slice(KEEP_RECORDS - 1);
+  for (const name of older) fs.rmSync(path.join(root, name), { recursive: true, force: true });
 }
 
 function openRecord({ targetDirs, homeDir = os.homedir(), now = new Date() }) {
@@ -62,46 +108,77 @@ function openRecord({ targetDirs, homeDir = os.homedir(), now = new Date() }) {
   fs.mkdirSync(recordDir);
   const entries = uniq(targetDirs.flatMap(scopeOf)).map((file) => backupEntry(recordDir, file));
   writeRecord(recordDir, { status: 'open', opened: now.toISOString(), targets: targetDirs, entries });
+  pruneRecords(root, recordDir);
   return recordDir;
 }
 
-function closeRecord(recordDir) {
+// Returns the closed record, or { status: 'unchanged' } after deleting it when the install changed no file.
+function closeRecord(recordDir, { owned = [] } = {}) {
+  if (!fs.existsSync(recordFileOf(recordDir))) return null;
   const record = readRecord(recordDir);
   if (record.status !== 'open') return record;
   const known = new Map(record.entries.map((entry) => [entry.path, entry]));
+  const created = new Set(owned);
   const files = uniq([...record.entries.map((entry) => entry.path), ...record.targets.flatMap(scopeOf)]);
-  const entries = files.map((file) => ({
-    path: file,
-    pre_sha256: known.has(file) ? known.get(file).pre_sha256 : null,
-    post_sha256: sha256OrNull(file),
-  }));
+  const entries = files
+    .map((file) => ({
+      path: file,
+      pre_sha256: known.has(file) ? known.get(file).pre_sha256 : null,
+      post_sha256: fingerprintOf(file),
+    }))
+    .filter((entry) => entry.pre_sha256 !== null || created.has(entry.path));
+  if (entries.every((entry) => entry.pre_sha256 === entry.post_sha256)) {
+    fs.rmSync(recordDir, { recursive: true, force: true });
+    return { ...record, status: 'unchanged', entries: [] };
+  }
   const closed = { ...record, status: 'closed', entries };
   writeRecord(recordDir, closed);
   return closed;
 }
 
-function newestRecordDir(homeDir) {
+// Closes the record on a normal exit and on the signals that end an install. SIGKILL cannot be caught: that record
+// stays open and rollback skips it.
+function closeOnExit(recordDir, owned, proc = process) {
+  const close = () => closeRecord(recordDir, { owned });
+  proc.once('exit', close);
+  for (const signal of CLOSING_SIGNALS) {
+    proc.once(signal, () => {
+      close();
+      proc.exit(128 + os.constants.signals[signal]);
+    });
+  }
+}
+
+function recordDirsNewestFirst(homeDir) {
   const root = upgradesRootOf(homeDir);
-  const names = fs.existsSync(root) ? fs.readdirSync(root).sort() : [];
-  return names.length === 0 ? null : path.join(root, names.at(-1));
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root).sort().reverse().map((name) => path.join(root, name));
+}
+
+// A record without a readable status is an install that died before it finished writing: treated as open.
+function statusOf(recordDir) {
+  try {
+    return readRecord(recordDir).status;
+  } catch {
+    return 'open';
+  }
 }
 
 function restoreEntry(recordDir, entry) {
-  if (entry.pre_sha256 === null) {
-    fs.rmSync(entry.path, { force: true });
-    return;
-  }
-  fs.mkdirSync(path.dirname(entry.path), { recursive: true });
-  fs.copyFileSync(preImageOf(recordDir, entry.path), entry.path);
+  fs.rmSync(entry.path, { force: true });
+  if (entry.pre_sha256 !== null) copyEntry(preImageOf(recordDir, entry.path), entry.path);
 }
 
+// An open record has no post fingerprints, so its pre-images cannot tell a file edited since the crash from one the
+// install left in place. Rollback therefore uses the newest finished record and skips open ones.
 function rollbackNewest({ homeDir = os.homedir() }) {
-  const recordDir = newestRecordDir(homeDir);
-  if (recordDir === null) return { status: 'no-record' };
+  const dirs = recordDirsNewestFirst(homeDir);
+  if (dirs.length === 0) return { status: 'no-record' };
+  const recordDir = dirs.find((dir) => statusOf(dir) !== 'open');
+  if (recordDir === undefined) return { status: 'incomplete', recordDir: dirs[0] };
   const record = readRecord(recordDir);
   if (record.status === 'rolled_back') return { status: 'already-rolled-back', recordDir };
-  if (record.status !== 'closed') return { status: 'incomplete', recordDir };
-  const current = record.entries.map((entry) => ({ entry, now: sha256OrNull(entry.path) }));
+  const current = record.entries.map((entry) => ({ entry, now: fingerprintOf(entry.path) }));
   const toRestore = current
     .filter(({ entry, now }) => now !== entry.pre_sha256 && now === entry.post_sha256)
     .map(({ entry }) => entry);
@@ -133,7 +210,7 @@ const SUMMARY = {
   refused: (r) => `refused: ${r.refusal.reason} (${r.refusal.failed.join(', ')})`,
 };
 
-module.exports = { openRecord, closeRecord, rollbackNewest, rollbackWithGuard };
+module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackNewest, rollbackWithGuard };
 
 if (require.main === module) {
   const result = rollbackWithGuard({ env: process.env, session: detectSession() });

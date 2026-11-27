@@ -80,12 +80,16 @@ GSD guarantees (atomic commits, state tracking) without full planning. Use for b
 # Standard install (Claude Code)
 npx get-shit-done-cc@latest
 
-# Non-interactive
-npx get-shit-done-cc --claude --global
+# Non-interactive local install (CI, containers)
 npx get-shit-done-cc --claude --local
+
+# Global installs: run by the owner from a normal terminal (TTY, no agent in the process tree)
+npx get-shit-done-cc --claude --global
 npx get-shit-done-cc --opencode --global
 npx get-shit-done-cc --gemini --global
 ```
+
+Global installs and `--uninstall --global` are refused without a terminal. Each global install first writes an upgrade record under `~/.gsd/upgrades` (the newest five are kept). `npm run rollback:gsd` restores the newest finished record; run it from a normal terminal. It leaves any file edited since the install alone.
 
 ```bash
 # Uninstall
@@ -217,7 +221,7 @@ Each task runs on the tier its plan carries in `<model>`: Haiku for mechanical s
 
 **`PreToolUse:Read hook error` on every file read** — the doc-compression hook can't find its dependencies. Run `npm install --prefix ~/.claude/get-shit-done/ markdown-it gray-matter minimatch`. This is handled automatically by `npm run install:gsd` from v1.18+.
 
-**Docker / CI** — set `CLAUDE_CONFIG_DIR=/home/user/.claude` before installing.
+**Docker / CI** — a global install is refused without a terminal (`stdin` and `stdout` must be a TTY and no agent may be in the process tree). Use `--local` inside the project directory instead; a `--local` run from `$HOME` is a global install and is refused the same way.
 
 **Telegram bot not responding** — check `.env` has correct token, send `/start` to bot first.
 
