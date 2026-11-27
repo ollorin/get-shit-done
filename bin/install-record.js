@@ -22,6 +22,9 @@ const OWNED_FILES = ['settings.json', 'gsd-file-manifest.json', 'gsd-source-path
 const SKIPPED_DIRS = new Set(['node_modules']);
 const CLOSING_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
+// Hook dependencies sit beside the skill files but are not recorded (SKIPPED_DIRS). The marker lists the targets that had them.
+const depsOf = (targetDir) => path.join(targetDir, 'get-shit-done', 'node_modules');
+const depsPrevOf = (targetDir) => path.join(targetDir, 'get-shit-done.prev', 'node_modules');
 const upgradesRootOf = (homeDir) => path.join(homeDir, '.gsd', 'upgrades');
 const preImageOf = (recordDir, file) => path.join(recordDir, PRE_DIR, file);
 const recordFileOf = (recordDir) => path.join(recordDir, RECORD_FILE);
@@ -107,7 +110,8 @@ function openRecord({ targetDirs, homeDir = os.homedir(), now = new Date() }) {
   const recordDir = path.join(root, stampOf(now));
   fs.mkdirSync(recordDir);
   const entries = uniq(targetDirs.flatMap(scopeOf)).map((file) => backupEntry(recordDir, file));
-  writeRecord(recordDir, { status: 'open', opened: now.toISOString(), targets: targetDirs, entries });
+  const deps_before = targetDirs.filter((dir) => fs.existsSync(depsOf(dir)));
+  writeRecord(recordDir, { status: 'open', opened: now.toISOString(), targets: targetDirs, deps_before, entries });
   pruneRecords(root, recordDir);
   return recordDir;
 }
@@ -178,6 +182,10 @@ function rollbackNewest({ homeDir = os.homedir() }) {
   if (recordDir === undefined) return { status: 'incomplete', recordDir: dirs[0] };
   const record = readRecord(recordDir);
   if (record.status === 'rolled_back') return { status: 'already-rolled-back', recordDir };
+  const lostDeps = (record.deps_before ?? []).filter((dir) => !fs.existsSync(depsOf(dir)));
+  const unrecoverable = lostDeps.filter((dir) => !fs.existsSync(depsPrevOf(dir)));
+  if (unrecoverable.length > 0) return { status: 'deps-missing', recordDir, left: unrecoverable };
+  for (const dir of lostDeps) fs.renameSync(depsPrevOf(dir), depsOf(dir));
   const current = record.entries.map((entry) => ({ entry, now: fingerprintOf(entry.path) }));
   const toRestore = current
     .filter(({ entry, now }) => now !== entry.pre_sha256 && now === entry.post_sha256)
@@ -207,6 +215,7 @@ const SUMMARY = {
   'no-record': () => 'no upgrade record under ~/.gsd/upgrades; nothing to roll back',
   incomplete: (r) => `${r.recordDir} never closed (install did not finish); nothing changed`,
   partial: (r) => `restored ${r.restored.length}; left alone, edited since the install: ${r.left.join(', ')}`,
+  'deps-missing': (r) => `node_modules missing and no .prev copy to restore under: ${r.left.join(', ')}; nothing changed`,
   refused: (r) => `refused: ${r.refusal.reason} (${r.refusal.failed.join(', ')})`,
 };
 

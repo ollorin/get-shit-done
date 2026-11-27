@@ -270,6 +270,10 @@ function refuseInstall({ targetDirs, runtimes = [], userScope, env, session }) {
   return userScope ? refusalOf({ command: 'install', guarded: targetDirs, env, session }) : null;
 }
 
+// The doc-compression hook require()s these at runtime; a swap must never drop them silently.
+const dropsNodeModules = (liveDir, stageDir) => fs.existsSync(path.join(liveDir, 'node_modules'))
+  && !fs.existsSync(path.join(stageDir, 'node_modules'));
+
 /**
  * Build a tree in `<liveDir>.next`, then swap it in (the old tree becomes `<liveDir>.prev`).
  * A failed build removes the staging tree and leaves the live tree as it was; a failed swap puts the old tree back.
@@ -280,6 +284,9 @@ function stageAndSwap(liveDir, build, rename = fs.renameSync) {
   fs.rmSync(stageDir, { recursive: true, force: true });
   try {
     build(stageDir);
+    if (dropsNodeModules(liveDir, stageDir)) {
+      throw new Error('hook dependencies (node_modules) are missing from the new tree; the installed tree was left as it was');
+    }
   } catch (err) {
     fs.rmSync(stageDir, { recursive: true, force: true });
     throw err;

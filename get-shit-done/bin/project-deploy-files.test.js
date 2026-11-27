@@ -304,6 +304,24 @@ describe('block-managed files (agnostic-B4)', () => {
     assert.deepStrictEqual(r.conflicts, [{ id: 'a', line: 153, reason: 'merge conflict' }]);
   });
 
+  test('B4-16 a clean theirs-only insert before a conflict: the reported line is the project line that conflicts', () => {
+    const base = L(M('a')[0], 'line1', 'line2', 'line3', M('a')[1]);
+    const next = L(M('a')[0], 'line1', 'new-a', 'new-b', 'new-c', 'line2', 'preset-3', M('a')[1]);
+    const current = L('head', M('a')[0], 'line1', 'line2', 'hand-3', M('a')[1]);
+    const r = F.planBlockFile({ current, next, base, mergeFn: mergeWith(mkTmp()) });
+    assert.strictEqual(r.action, 'conflict');
+    assert.deepStrictEqual(r.conflicts, [{ id: 'a', line: current.split('\n').indexOf('hand-3') + 1, reason: 'merge conflict' }]);
+  });
+
+  test('B4-17 a clean theirs-only removal before a conflict: the reported line is the project line that conflicts', () => {
+    const base = L(M('a')[0], 'drop-1', 'drop-2', 'keep', 'line3', M('a')[1]);
+    const next = L(M('a')[0], 'keep', 'preset-3', M('a')[1]);
+    const current = L('head', M('a')[0], 'drop-1', 'drop-2', 'keep', 'hand-3', M('a')[1]);
+    const r = F.planBlockFile({ current, next, base, mergeFn: mergeWith(mkTmp()) });
+    assert.strictEqual(r.action, 'conflict');
+    assert.deepStrictEqual(r.conflicts, [{ id: 'a', line: current.split('\n').indexOf('hand-3') + 1, reason: 'merge conflict' }]);
+  });
+
   test('B4-14 a differing block without a merge base is a conflict; an identical block is unchanged', () => {
     const next = L(M('a')[0], 'new', M('a')[1]);
     const noBase = F.planBlockFile({ current: L(M('a')[0], 'hand', M('a')[1]), next, base: null });

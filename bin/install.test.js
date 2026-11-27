@@ -1150,4 +1150,44 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'old\n');
     assert.strictEqual(fs.existsSync(`${live}.next`), false);
   }));
+
+  test('stageAndSwap: a stage without node_modules aborts; the live tree and its node_modules stay', () => withHome((home) => {
+    const live = path.join(home, 'get-shit-done');
+    fs.mkdirSync(path.join(live, 'node_modules', 'm'), { recursive: true });
+    fs.writeFileSync(path.join(live, 'a.js'), 'old\n');
+    assert.throws(() => installer().stageAndSwap(live, (stage) => {
+      fs.mkdirSync(stage);
+      fs.writeFileSync(path.join(stage, 'a.js'), 'new\n');
+    }), /node_modules/);
+    assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'old\n');
+    assert.strictEqual(fs.existsSync(path.join(live, 'node_modules', 'm')), true);
+    assert.strictEqual(fs.existsSync(`${live}.next`), false);
+    assert.strictEqual(fs.existsSync(`${live}.prev`), false);
+  }));
+
+  test('rollback restores node_modules that the swap dropped, from the .prev tree it kept', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    fs.mkdirSync(path.join(claude, 'get-shit-done', 'node_modules', 'm'), { recursive: true });
+    fs.writeFileSync(path.join(claude, 'get-shit-done', 'node_modules', 'm', 'index.js'), 'deps\n');
+    const before = snapshotOf(claude);
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    fs.mkdirSync(path.join(claude, 'get-shit-done.prev'));
+    fs.renameSync(path.join(claude, 'get-shit-done', 'node_modules'), path.join(claude, 'get-shit-done.prev', 'node_modules'));
+    assert.strictEqual(recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] }).status, 'closed');
+    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+    assert.deepStrictEqual(snapshotOf(claude), before);
+  }));
+
+  test('rollback refuses when node_modules is gone and no .prev copy exists, changing no file', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    fs.mkdirSync(path.join(claude, 'get-shit-done', 'node_modules'));
+    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    fs.rmSync(path.join(claude, 'get-shit-done', 'node_modules'), { recursive: true });
+    assert.strictEqual(recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] }).status, 'closed');
+    const afterInstall = snapshotOf(claude);
+    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'deps-missing');
+    assert.deepStrictEqual(snapshotOf(claude), afterInstall);
+  }));
 });

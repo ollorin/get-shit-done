@@ -87,11 +87,46 @@ const innerLines = (inner) => (inner === '' ? [] : inner.split('\n'));
 const asText = (inner) => (inner === '' ? '' : `${inner}\n`);
 const fromText = (text) => text.replace(/\n$/, '');
 
-// Inner line where git's first conflict marker sits in the merged output (its lines follow the inner text 1:1 up to there).
-const conflictOffset = (content) => {
+// Aligns each line of `out` to the line of `ours` it equals (LCS), -1 for a line only theirs contributed.
+const alignToOurs = (ours, out) => {
+  const n = ours.length;
+  const m = out.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = ours[i] === out[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  const match = new Array(m).fill(-1);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (ours[i] === out[j] && lcs[i][j] === lcs[i + 1][j + 1] + 1) {
+      match[j] = i;
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      i++;
+    } else {
+      j++;
+    }
+  }
+  return match;
+};
+
+// Index in `oursLines` of the first line the first conflict covers. git's output holds clean theirs-only lines before the
+// conflict and lacks ours lines theirs removed, so its output index is not the ours index. The conflict's ours side is
+// verbatim ours, so its first line anchors the position; an empty ours side falls back to the line after the prefix.
+const conflictOursIndex = (oursLines, content) => {
   if (content === undefined) return undefined;
-  const i = content.toString('utf8').split('\n').findIndex((l) => l.startsWith('<<<<<<<'));
-  return i < 0 ? undefined : i;
+  const lines = content.toString('utf8').split('\n');
+  const k = lines.findIndex((l) => l.startsWith('<<<<<<<'));
+  if (k < 0) return undefined;
+  const sectionEnd = lines.findIndex((l, idx) => idx > k && l.startsWith('======='));
+  const oursSide = sectionEnd < 0 ? [] : lines.slice(k + 1, sectionEnd);
+  const aligned = alignToOurs(oursLines, [...lines.slice(0, k), ...oursSide]);
+  if (oursSide.length > 0) return aligned[k];
+  return aligned.slice(0, k).reduce((last, v) => (v >= 0 ? v + 1 : last), 0);
 };
 
 // base = the block as last deployed (the mirror), ours = the project's block, theirs = the new preset block.
@@ -100,11 +135,12 @@ function mergeBlock({ ours, base, theirs, mergeFn }) {
   if (ours === theirs) return { ok: true, inner: ours, merged: false };
   if (base === undefined) return { ok: false, reason: 'merge base missing' };
   const r = mergeFn(asText(ours), asText(base), asText(theirs));
-  if (!r.ok) return { ok: false, reason: r.reason, offset: conflictOffset(r.content) };
+  if (!r.ok) return { ok: false, reason: r.reason, offset: conflictOursIndex(innerLines(ours), r.content) };
   return { ok: true, inner: fromText(r.content.toString('utf8')), merged: ours !== base };
 }
 
-// The project-file line of the conflict: the begin marker when git gave no position, else the conflicting inner line.
+// 1-based project-file line of the conflict: the begin marker's line when git gave no position, else the ours line
+// (block begin marker at beginLine, inner line i at beginLine + 1 + i, so 1-based is beginLine + 2 + i).
 const conflictLine = (block, result) => (result.offset === undefined
   ? block.beginLine + 1
   : block.beginLine + 2 + result.offset);
