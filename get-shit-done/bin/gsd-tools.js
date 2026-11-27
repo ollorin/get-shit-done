@@ -15017,7 +15017,13 @@ async function main() {
     }
 
     case 'plan': {
-      if (args[1] !== 'overlap') error('Unknown plan subcommand. Available: overlap <planA> <planB>');
+      if (args[1] === 'rebase-check') {
+        const rc = planOverlap.cmdRebaseCheck(cwd, args[2]);
+        if (rc.error) error(rc.error);
+        output(rc, raw, undefined, rc.clean ? 0 : 1);
+        break;
+      }
+      if (args[1] !== 'overlap') error('Unknown plan subcommand. Available: overlap <planA> <planB>, rebase-check <plan>');
       const r = planOverlap.cmdOverlap(cwd, args[2], args[3]);
       if (r.error) error(r.error);
       output(r, raw, undefined, r.disjoint ? 0 : 1);

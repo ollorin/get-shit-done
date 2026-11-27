@@ -458,5 +458,5 @@ Orchestrator: about 10-15% context. Each phase coordinator gets a fresh window. 
 </failure_handling>
 
 <parallel_execution>
-`roadmap next` returns one phase at a time and `parallel_opportunities` is always empty: the run is sequential. Parallelism between independent phases is the project's decision (its CLAUDE.md or rules set the ceiling and the file-claim protocol); never run two coordinators in one phase.
+`roadmap next` returns one phase at a time and `parallel_opportunities` is always empty: the run is sequential. Parallelism between independent phases is the project's decision (its CLAUDE.md or rules set the ceiling and the file-claim protocol); never run two coordinators in one phase. Plan-ahead (D-281): the plan step of phase N+1 may run only while phase N's full test and gate run is in progress, and never earlier. Before phase N+1 executes, run `gsd-tools plan rebase-check <plan>` on each of its plans; a plan it flags (exit 1) is revised against the new tree first.
 </parallel_execution>
