@@ -377,7 +377,7 @@ recipient's next tool round. Skip silently if SendMessage is unavailable. Patter
 - Before the live window, RUN new fixtures and tests against a no-stack or sandbox lane when one exists (the `typecheck` command from `stack_commands` alone is not a run). Runtime defects (missing gate, trigger, role, leftover rows) are invisible to the `typecheck` command; a window is the first execution only when nothing ran earlier.
 - Unattended: at any permission prompt, STOP and report the exact command string verbatim in the return. Do not retry it in another shape.
 - Command shapes that prompt: relative `rm ../…`, heredoc-fed interpreters, zsh expansion flags such as `${(f)…}`. Write scratch to `.tmp/` and run it by path instead.
-- Long runs: poll in the foreground and check for the `rc=` line at 25 minutes. A unit stage silent for more than 25 minutes is a hang: stop it, find the hanging file, and triage it; do not wait longer.
+- Long runs: foreground under `timeout` (at most 600 s per call) or `run_in_background` and end your turn; the exit notification wakes you. Check `rc=` at 25 minutes. A unit stage silent for more than 25 minutes is a hang: stop it, find the hanging file, and triage it; do not wait longer.
 - Fixture and stale-pin fixes are committed between runs, not one per run.
 
 </live_stack_work>

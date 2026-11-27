@@ -153,8 +153,7 @@ command of the profile needs no owner approval, but first confirm no other agent
 
 ### Orchestration hard rules (any agent that spawns agents)
 
-- **Wait in-turn.** Never end your turn while a child agent or background command is still running
-  — poll it in the foreground. A child that died (rate limit, context overflow) is re-dispatched
+- **Wait by notification, never by polling.** End your turn after spawning; a child's handback or a background command's exit notification wakes you. Send your final report only when the work is done or blocked, never while a child agent or background command you started still runs; an "is waiting on its own background work" notice is interim. A child that died (rate limit, context overflow) is re-dispatched
   fresh, scoped to resume from on-disk state; never assume its work finished. No output for 45+ min
   = stalled: TaskStop it, then re-dispatch in smaller units.
 - **Never SendMessage a child that has handed back or completed** — it resumes and runs in parallel

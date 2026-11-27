@@ -967,7 +967,7 @@ A phase that needs the shared local stack (migrations, DB fixtures, integration 
 </live_window_protocol>
 
 <context_efficiency>
-Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling (Task blocks). No context bleed.
+Orchestrator: ~10-15% context. Subagents: fresh 200k each. No polling: a child's handback wakes you. No context bleed.
 </context_efficiency>
 
 <failure_handling>

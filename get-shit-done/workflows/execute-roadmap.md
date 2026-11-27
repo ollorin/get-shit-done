@@ -250,12 +250,7 @@ IS_STALE=$(node -e "console.log(JSON.parse(process.argv[1]).stale)" "$STALENESS_
          --data '{"phase": {N}, "reset_time_iso": "'"${RESET_TIME_ISO}"'", "wait_seconds": '"${WAIT_SECONDS}"', "cap_seconds": '"${MAX_WAIT_SECONDS}"'}'
        ```
        Print the implausible reset time to the chat and do not respawn: this phase goes to `handle_failure`.
-     - Otherwise poll until the reset, then respawn:
-       ```bash
-       while [ "$(date -u +%s)" -lt "${RESET_EPOCH}" ]; do
-         sleep 60
-       done
-       ```
+     - Otherwise wait until the reset: run `sleep ${WAIT_SECONDS}` under `run_in_background` and end your turn; its exit notification wakes you to respawn.
    - **Respawn** with a fresh `Agent()` call, not a retry of the dead one: the spawn block of step 4 with `BRIEF_TEXT` prepended under a "RESUMING FROM DEATH" preamble, verbatim:
      ```
      Agent(

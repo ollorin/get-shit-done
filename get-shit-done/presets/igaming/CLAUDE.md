@@ -35,7 +35,7 @@ including one of your own.
   Exact sweeps: `git grep -n <pat> -- <path>` or `zg query --rg -F <pat> <path>`. The hooks deny recursive
   `grep`/`rg`, `rg` without a file, `rtk grep` and `find -exec` without `-maxdepth`; `grep` on named files is fine.
 - **Run tests only in allowlisted shapes:** `cd /Users/ollorin/igaming-platform/apps/api && deno task test <file>`, `deno test <file>` (optional `timeout N`, trailing `2>&1`), `npx nx test <project>`, `deno check|lint|fmt`. No inline env vars, no `| tail/grep`, no `;`/extra `&&`, no `$()`/heredocs/`bash -c`. If a command prompts, stop and report the exact string.
-- **Unattended agents never wait on a prompt:** one that hits any permission prompt STOPS and reports the exact command string to its spawner; long runs are polled in the foreground with an `rc=` check at 25 min, never waited on silently.
+- **Unattended agents never wait on a prompt:** one that hits any permission prompt STOPS and reports the exact command string to its spawner; long runs go foreground under `timeout` (at most 600 s per call) or `run_in_background` (the exit notification wakes you), with an `rc=` check at 25 min, never waited on silently.
 
 ### Functional Programming
 
@@ -152,8 +152,7 @@ check-in).
 
 ### Orchestration hard rules (any agent that spawns agents)
 
-- **Wait in-turn.** Never end your turn while a child agent or background command is still running
-  — poll it in the foreground. A child that died (rate limit, context overflow) is re-dispatched
+- **Wait by notification, never by polling.** End your turn after spawning; a child's handback or a background command's exit notification wakes you. Send your final report only when the work is done or blocked, never while a child agent or background command you started still runs; an "is waiting on its own background work" notice is interim. A child that died (rate limit, context overflow) is re-dispatched
   fresh, scoped to resume from on-disk state; never assume its work finished. No output for 45+ min
   = stalled: TaskStop it, then re-dispatch in smaller units.
 - **Never SendMessage a child that has handed back or completed** — it resumes and runs in parallel

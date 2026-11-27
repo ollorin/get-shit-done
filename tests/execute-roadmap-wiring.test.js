@@ -65,10 +65,29 @@ describe('P1 the coordinator is a thin dispatcher', () => {
   });
 
   test('the coordinator is woken by child handback, never returns while a child runs, and runs no sleep poll loop', () => {
-    assert.match(COORD, /Never return while a child agent or background command is still running/);
-    assert.match(COORD, /`SubagentHandback` or task notification wakes you/);
+    assert.match(COORD, /Call `SubagentHandback` only when the phase is done or blocked, never while a child agent or background command you started is still running/);
+    assert.match(COORD + DETAIL, /a child's handback or a background command's exit notification wakes you/);
     assert.doesNotMatch(COORD + DETAIL, /Poll it in the foreground/);
-    assert.doesNotMatch(COORD + DETAIL, /\bsleep \d/);
+    assert.doesNotMatch(COORD + DETAIL, /seq 1 \d+|until .*sleep/);
+  });
+
+  test('the interim notice is not a handback, and the stall watchdog is a run_in_background timer of 2700 s', () => {
+    for (const t of [COORD, DETAIL]) {
+      assert.match(t, /"is waiting on its own background work", or whose note says the result may be interim, is not a handback/);
+      assert.match(t, /With each wait start one `run_in_background` timer of 2700 s/);
+    }
+  });
+
+  test('execute-phase wave wait is pinned to the handback wording', () => {
+    assert.ok(read('get-shit-done/workflows/execute-phase.md').includes("End your turn after the spawns; each executor's `SubagentHandback` wakes you."));
+  });
+});
+
+describe('presets carry the wake-on-handback rule', () => {
+  test('neither base nor igaming tells the coordinator to poll a child in the foreground', () => {
+    for (const p of ['get-shit-done/presets/base/CLAUDE.md', 'get-shit-done/presets/igaming/CLAUDE.md']) {
+      assert.doesNotMatch(read(p), /poll it in the foreground/i, p);
+    }
   });
 });
 
