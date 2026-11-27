@@ -1,6 +1,7 @@
 // Serialises shared-stack mutations: runs a command while holding the exclusive stack lock.
 // Entry point: scripts/stack-lock.sh (the command hook recognises a wrapped command only by that name).
 //
+// Paths: --lock-file / --owner-file, else <stack.isolation.lock_dir>/{stack.lock,owner.txt} from .planning/config.json, else .tmp/.
 // Design: the lock is the file --lock-file, created with the atomic exclusive create (flag 'wx') and holding one JSON
 // line { pid, label, start }, rewritten with childPid once the command is spawned. Waiters retry every 200 ms. A holder is alive while either its wrapper pid or its
 // command pid answers kill(pid, 0) (ESRCH means gone; EPERM means alive); only a holder with both gone is taken over: a waiter makes the directory <lock-file>.takeover (atomic), re-reads the lock
@@ -48,7 +49,7 @@ const FLAG_NAMES = ['--label', '--timeout', '--lock-file', '--owner-file'];
 
 // An empty owner.txt is the idle state (cleared on release); never hand-write or delete it.
 export const USAGE = [
-  'usage: stack-lock.sh --label <name> [--timeout <seconds>] -- <command> [args...]',
+  'usage: stack-lock.sh [--label <name>] [--timeout <seconds>] -- <command> [args...]',
   '  Runs <command> while holding the exclusive stack lock; the only supported way to take it.',
   '  Exit 75 = timed out waiting, 2 = usage error, 127 = spawn failed. Flags: ' + FLAG_NAMES.join(' '),
 ].join('\n');
@@ -62,28 +63,41 @@ const readFlags = (args, acc) =>
         ? { ok: false, error: `${args[0]} requires a value` }
         : readFlags(args.slice(2), { ...acc, [args[0]]: args[1] });
 
-export const parseArgs = (args) => {
+// stack.isolation.lock_dir of <root>/.planning/config.json as an absolute path; undefined when absent or unreadable.
+export const lockDirFromConfig = (root) => {
+  try {
+    const dir = JSON.parse(fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf8'))?.stack?.isolation?.lock_dir;
+    return typeof dir === 'string' && dir !== '' ? path.resolve(root, dir) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const parseArgs = (args, lockDir) => {
   const sep = args.indexOf('--');
   if (sep === -1) return { ok: false, error: 'missing -- <command>' };
   const cmd = args.slice(sep + 1);
   if (cmd.length === 0) return { ok: false, error: 'empty command after --' };
   const flags = readFlags(args.slice(0, sep), {});
   if (!flags.ok) return flags;
-  const label = flags.value['--label'];
+  const label = flags.value['--label'] || path.basename(process.cwd());
   const timeout = Number(flags.value['--timeout'] ?? DEFAULT_TIMEOUT_S);
-  if (!label) return { ok: false, error: '--label is required' };
   if (!Number.isInteger(timeout) || timeout < 1) return { ok: false, error: '--timeout must be a positive integer' };
   return {
     ok: true,
     value: {
       label,
       timeout,
-      lockFile: flags.value['--lock-file'] ?? DEFAULT_LOCK_FILE,
-      ownerFile: flags.value['--owner-file'] ?? DEFAULT_OWNER_FILE,
+      lockFile: flags.value['--lock-file'] ?? (lockDir ? path.join(lockDir, 'stack.lock') : DEFAULT_LOCK_FILE),
+      ownerFile: flags.value['--owner-file'] ?? (lockDir ? path.join(lockDir, 'owner.txt') : DEFAULT_OWNER_FILE),
       cmd,
     },
   };
 };
+
+// A wait that did not acquire on the first try (the poll interval is the shortest wait); measure only.
+export const lockWaitRecord = (label, waitedMs, at) =>
+  waitedMs < POLL_MS ? null : { event: 'lock_wait', label, waited_ms: waitedMs, at };
 
 export const ownerRecord = (pid, label, start, command, waitedMs) =>
   waitedMs === undefined ? { pid, label, start, command } : { pid, label, start, command, waited_ms: waitedMs };
@@ -215,7 +229,7 @@ const runChild = (cmd, onChild) =>
   });
 
 const run = async (args) => {
-  const parsed = parseArgs(args);
+  const parsed = parseArgs(args, lockDirFromConfig(REPO_ROOT));
   if (!parsed.ok) {
     console.error(`stack-lock: ${parsed.error}\n${USAGE}`);
     return EXIT_USAGE;
@@ -243,6 +257,14 @@ const run = async (args) => {
   }
 
   const waitedMs = Date.now() - waitStart;
+  const waitEvent = lockWaitRecord(label, waitedMs, new Date().toISOString());
+  if (waitEvent) {
+    try {
+      fs.appendFileSync(path.join(path.dirname(lockFile), 'lock-wait.jsonl'), JSON.stringify(waitEvent) + '\n');
+    } catch {
+      // measure only
+    }
+  }
   // Informational only: owner.txt is never read to decide anything, so a failed write is not fatal.
   try {
     fs.writeFileSync(ownerFile, JSON.stringify(ownerRecord(process.pid, label, start, cmd.join(' '), waitedMs)) + '\n');
