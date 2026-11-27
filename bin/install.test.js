@@ -820,6 +820,8 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     })
     : []);
   const snapshotOf = (dir) => Object.fromEntries(filesUnder(dir).map((p) => [p, fs.readFileSync(p, 'base64')]));
+  // Stage and prev trees live under <parent>/.gsd-staging, never beside the live tree (WP22a review 3, item 6).
+  const stagedOf = (live, suffix) => path.join(path.dirname(live), '.gsd-staging', `${path.basename(live)}.${suffix}`);
   const withHome = (fn) => {
     const home = createScratchDir('gsd-wp22a-');
     try { fn(home); } finally { cleanup(home); }
@@ -884,8 +886,8 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
       throw new Error('simulated copy failure');
     }), /simulated copy failure/);
     assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'old\n');
-    assert.strictEqual(fs.existsSync(`${live}.next`), false);
-    assert.strictEqual(fs.existsSync(`${live}.prev`), false);
+    assert.strictEqual(fs.existsSync(stagedOf(live, 'next')), false);
+    assert.strictEqual(fs.existsSync(stagedOf(live, 'prev')), false);
   }));
 
   test('stageAndSwap: a successful build replaces the live tree and keeps the old one as .prev', () => withHome((home) => {
@@ -897,8 +899,8 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
       fs.writeFileSync(path.join(stage, 'a.js'), 'new\n');
     });
     assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'new\n');
-    assert.strictEqual(fs.readFileSync(path.join(`${live}.prev`, 'a.js'), 'utf8'), 'old\n');
-    assert.strictEqual(fs.existsSync(`${live}.next`), false);
+    assert.strictEqual(fs.readFileSync(path.join(stagedOf(live, 'prev'), 'a.js'), 'utf8'), 'old\n');
+    assert.strictEqual(fs.existsSync(stagedOf(live, 'next')), false);
   }));
 
   test('rollback restores the pre-images byte for byte, and a second run changes nothing', () => withHome((home) => {
@@ -1103,18 +1105,6 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(upgrades, name, 'record.json'), 'utf8')).status, 'closed');
   }));
 
-  test('rollback takes the newest closed record when a later record never closed', () => withHome((home) => {
-    const claude = seedClaudeDir(home);
-    const before = snapshotOf(claude);
-    const base = Date.parse('2026-11-27T10:00:00Z');
-    const closed = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base) });
-    simulateInstall(claude);
-    recordModule().closeRecord(closed, { owned: [newFileOf(claude)] });
-    recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base + 1000) });
-    assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
-    assert.deepStrictEqual(snapshotOf(claude), before);
-  }));
-
   test('the upgrades directory keeps the newest five records', () => withHome((home) => {
     const claude = seedClaudeDir(home);
     const base = Date.parse('2026-11-27T10:00:00Z');
@@ -1148,7 +1138,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
       fs.writeFileSync(path.join(stage, 'a.js'), 'new\n');
     }, flakyRename), /simulated swap failure/);
     assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'old\n');
-    assert.strictEqual(fs.existsSync(`${live}.next`), false);
+    assert.strictEqual(fs.existsSync(stagedOf(live, 'next')), false);
   }));
 
   test('stageAndSwap: a stage without node_modules aborts; the live tree and its node_modules stay', () => withHome((home) => {
@@ -1161,8 +1151,8 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     }), /node_modules/);
     assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'old\n');
     assert.strictEqual(fs.existsSync(path.join(live, 'node_modules', 'm')), true);
-    assert.strictEqual(fs.existsSync(`${live}.next`), false);
-    assert.strictEqual(fs.existsSync(`${live}.prev`), false);
+    assert.strictEqual(fs.existsSync(stagedOf(live, 'next')), false);
+    assert.strictEqual(fs.existsSync(stagedOf(live, 'prev')), false);
   }));
 
   test('stageAndSwap: an interrupted build leaves get-shit-done, agents and commands/gsd byte-identical', () => withHome((home) => {
@@ -1195,7 +1185,7 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     assert.deepStrictEqual(fs.readdirSync(live).sort(), ['gsd-new.md', 'mine.md', 'sub']);
     assert.strictEqual(fs.readFileSync(path.join(live, 'mine.md'), 'utf8'), 'foreign\n');
     assert.strictEqual(fs.readFileSync(path.join(live, 'sub', 'x.md'), 'utf8'), 'nested\n');
-    assert.strictEqual(fs.existsSync(path.join(`${live}.prev`, 'gsd-old.md')), true);
+    assert.strictEqual(fs.existsSync(path.join(stagedOf(live, 'prev'), 'gsd-old.md')), true);
   }));
 
   test('stageAndSwap: node_modules moves into the new tree; a failed build or npm step gives it back', () => withHome((home) => {
@@ -1217,37 +1207,260 @@ describe('WP22a installer safety: corrupt settings, backup record, staged swap, 
     });
     assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'new\n');
     assert.strictEqual(fs.readFileSync(path.join(live, 'node_modules', 'm', 'i.js'), 'utf8'), 'deps\n');
-    assert.strictEqual(fs.existsSync(path.join(`${live}.prev`, 'node_modules')), false);
+    assert.strictEqual(fs.existsSync(path.join(stagedOf(live, 'prev'), 'node_modules')), false);
   }));
 
   test('stageAndSwap: a killed run that stranded node_modules in the stage is repaired by the next run', () => withHome((home) => {
     const live = path.join(home, 'get-shit-done');
     fs.mkdirSync(path.join(live, '.next-dummy'), { recursive: true });
-    fs.mkdirSync(path.join(`${live}.next`, 'node_modules', 'm'), { recursive: true });
+    fs.mkdirSync(path.join(stagedOf(live, 'next'), 'node_modules', 'm'), { recursive: true });
     assert.throws(() => installer().stageAndSwap(live, () => { throw new Error('stop'); }), /stop/);
     assert.strictEqual(fs.existsSync(path.join(live, 'node_modules', 'm')), true);
   }));
 
-  test('stageAndSwap: keepPrev false leaves no .prev beside the live tree', () => withHome((home) => {
-    const live = path.join(home, 'gsd');
-    fs.mkdirSync(live);
-    installer().stageAndSwap(live, (stage) => fs.mkdirSync(stage), fs.renameSync, { keepPrev: false });
-    assert.strictEqual(fs.existsSync(`${live}.prev`), false);
-    assert.strictEqual(fs.existsSync(live), true);
+  // Item 6: nothing of a staged tree sits beside or inside a directory Claude Code loads recursively.
+  test('stageAndSwap: a commands/gsd stage and prev live under .gsd-staging, never inside commands/', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const live = path.join(claude, 'commands', 'gsd');
+    fs.mkdirSync(live, { recursive: true });
+    const opts = { stagingRoot: path.join(claude, '.gsd-staging'), name: 'commands-gsd' };
+    let seenDuringBuild = null;
+    installer().stageAndSwap(live, (stage) => {
+      fs.mkdirSync(stage, { recursive: true });
+      fs.writeFileSync(path.join(stage, 'c.md'), 'new\n');
+      seenDuringBuild = fs.readdirSync(path.join(claude, 'commands'));
+    }, fs.renameSync, opts);
+    assert.deepStrictEqual(seenDuringBuild, ['gsd']);
+    assert.deepStrictEqual(fs.readdirSync(path.join(claude, 'commands')), ['gsd']);
+    assert.strictEqual(fs.existsSync(path.join(claude, '.gsd-staging', 'commands-gsd.prev')), true);
   }));
 
-  test('rollback restores node_modules that the swap dropped, from the .prev tree it kept', () => withHome((home) => {
+  // Item 1: a kill between the two renames leaves no live tree, only the stage (holding node_modules) and prev.
+  test('stageAndSwap: a crash between the two renames is repaired; the stranded node_modules is kept', () => withHome((home) => {
+    const live = path.join(home, 'get-shit-done');
+    fs.mkdirSync(path.join(stagedOf(live, 'next'), 'node_modules', 'm'), { recursive: true });
+    fs.writeFileSync(path.join(stagedOf(live, 'next'), 'node_modules', 'm', 'i.js'), 'deps\n');
+    fs.writeFileSync(path.join(stagedOf(live, 'next'), 'a.js'), 'crashed new\n');
+    fs.mkdirSync(stagedOf(live, 'prev'), { recursive: true });
+    fs.writeFileSync(path.join(stagedOf(live, 'prev'), 'a.js'), 'old\n');
+    installer().stageAndSwap(live, (stage, adopt) => {
+      fs.mkdirSync(stage);
+      fs.writeFileSync(path.join(stage, 'a.js'), 'fresh\n');
+      adopt();
+    });
+    assert.strictEqual(fs.readFileSync(path.join(live, 'a.js'), 'utf8'), 'fresh\n');
+    assert.strictEqual(fs.readFileSync(path.join(live, 'node_modules', 'm', 'i.js'), 'utf8'), 'deps\n');
+    assert.strictEqual(fs.readFileSync(path.join(stagedOf(live, 'prev'), 'a.js'), 'utf8'), 'old\n');
+  }));
+
+  // Item 4: every stage is built before any tree is replaced, and a failed swap undoes the trees already swapped.
+  const treeSpec = (home, name, content, extra = {}) => {
+    const liveDir = path.join(home, name);
+    fs.mkdirSync(liveDir, { recursive: true });
+    fs.writeFileSync(path.join(liveDir, 'a.js'), 'old\n');
+    return {
+      label: name,
+      liveDir,
+      build: (stage) => { fs.mkdirSync(stage); fs.writeFileSync(path.join(stage, 'a.js'), content); },
+      ...extra,
+    };
+  };
+  const contentOf = (spec) => fs.readFileSync(path.join(spec.liveDir, 'a.js'), 'utf8');
+
+  test('swapTrees: a failed build of a later tree replaces no tree at all', () => withHome((home) => {
+    const first = treeSpec(home, 'one', 'new\n');
+    const second = treeSpec(home, 'two', 'new\n', { build: () => { throw new Error('build two failed'); } });
+    const result = installer().swapTrees([first, second]);
+    assert.deepStrictEqual(result.errors.map((e) => [e.label, e.message]), [['two', 'build two failed']]);
+    assert.strictEqual(contentOf(first), 'old\n');
+    assert.strictEqual(contentOf(second), 'old\n');
+    assert.strictEqual(fs.existsSync(stagedOf(first.liveDir, 'next')), false);
+  }));
+
+  test('swapTrees: a swap that fails on the second tree puts the first tree back', () => withHome((home) => {
+    const first = treeSpec(home, 'one', 'new\n');
+    const second = treeSpec(home, 'two', 'new\n');
+    let calls = 0;
+    const flakyRename = (from, to) => {
+      calls += 1;
+      if (calls === 4) throw new Error('simulated swap failure');
+      fs.renameSync(from, to);
+    };
+    const result = installer().swapTrees([first, second], flakyRename);
+    assert.strictEqual(result.errors.length, 1);
+    assert.strictEqual(contentOf(first), 'old\n');
+    assert.strictEqual(contentOf(second), 'old\n');
+  }));
+
+  test('swapTrees: every tree is replaced when every build succeeds', () => withHome((home) => {
+    const specs = [treeSpec(home, 'one', 'new\n'), treeSpec(home, 'two', 'new\n')];
+    assert.deepStrictEqual(installer().swapTrees(specs).errors, []);
+    assert.deepStrictEqual(specs.map(contentOf), ['new\n', 'new\n']);
+  }));
+
+  // Item 7: a symlinked live tree is refused before any write.
+  test('a symlinked agents or get-shit-done tree refuses the install before any write and names which', () => withHome((home) => {
+    const claude = path.join(home, '.claude');
+    const dotfiles = path.join(home, 'dotfiles-agents');
+    fs.mkdirSync(dotfiles);
+    fs.mkdirSync(claude);
+    fs.symlinkSync(dotfiles, path.join(claude, 'agents'));
+    const before = treeOf(home);
+    const refusal = installer().refuseInstall({ targetDirs: [claude], env: {}, session: GOOD });
+    assert.match(refusal.reason, /symlink/);
+    assert.deepStrictEqual(refusal.paths, [path.join(claude, 'agents')]);
+    assert.deepStrictEqual(treeOf(home), before);
+    assert.throws(() => installer().stageAndSwap(path.join(claude, 'agents'), (stage) => fs.mkdirSync(stage)), /symlink/);
+    assert.strictEqual(fs.lstatSync(path.join(claude, 'agents')).isSymbolicLink(), true);
+  }));
+
+  // Item 3: an open newest record means a crashed install; an older record is never reverted past it.
+  test('rollback with an open newest record reports incomplete and reverts nothing, even with an older closed record', () => withHome((home) => {
     const claude = seedClaudeDir(home);
-    fs.mkdirSync(path.join(claude, 'get-shit-done', 'node_modules', 'm'), { recursive: true });
-    fs.writeFileSync(path.join(claude, 'get-shit-done', 'node_modules', 'm', 'index.js'), 'deps\n');
-    const before = snapshotOf(claude);
-    const recordDir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    const base = Date.parse('2026-11-27T10:00:00Z');
+    const closed = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base) });
     simulateInstall(claude);
-    fs.mkdirSync(path.join(claude, 'get-shit-done.prev'));
-    fs.renameSync(path.join(claude, 'get-shit-done', 'node_modules'), path.join(claude, 'get-shit-done.prev', 'node_modules'));
-    assert.strictEqual(recordModule().closeRecord(recordDir, { owned: [newFileOf(claude)] }).status, 'closed');
+    recordModule().closeRecord(closed, { owned: [newFileOf(claude)] });
+    recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(base + 1000) });
+    const afterInstall = snapshotOf(claude);
+    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(result.status, 'incomplete');
+    assert.deepStrictEqual(snapshotOf(claude), afterInstall);
+  }));
+
+  // Item 2: the manifest timestamp alone is not a change.
+  test('a record whose only change is the manifest timestamp is removed on close; another change keeps it', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const manifest = path.join(claude, 'gsd-file-manifest.json');
+    const write = (timestamp) => fs.writeFileSync(manifest, JSON.stringify({ version: '1', timestamp, files: {} }, null, 2));
+    write('2026-01-01T00:00:00Z');
+    const quiet = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    write('2026-01-02T00:00:00Z');
+    assert.strictEqual(recordModule().closeRecord(quiet).status, 'unchanged');
+    assert.strictEqual(fs.existsSync(quiet), false);
+    const real = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(Date.now() + 5000) });
+    write('2026-01-03T00:00:00Z');
+    fs.writeFileSync(path.join(claude, 'get-shit-done', 'a.js'), 'changed\n');
+    assert.strictEqual(recordModule().closeRecord(real).status, 'closed');
+  }));
+
+  // Item 8: package.json restored with the old pins while node_modules stays new: one npm install run, injectable.
+  test('rollback that restores get-shit-done/package.json runs one npm install there; unchanged package.json runs none', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const pkgFile = path.join(claude, 'get-shit-done', 'package.json');
+    fs.writeFileSync(pkgFile, '{"old":1}\n');
+    const calls = [];
+    const runNpm = (cwd) => { calls.push(cwd); return true; };
+    const first = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    fs.writeFileSync(pkgFile, '{"new":1}\n');
+    recordModule().closeRecord(first);
+    const result = recordModule().rollbackNewest({ homeDir: home, runNpm });
+    assert.strictEqual(result.status, 'rolled-back');
+    assert.deepStrictEqual(calls, [path.join(claude, 'get-shit-done')]);
+    assert.strictEqual(fs.readFileSync(pkgFile, 'utf8'), '{"old":1}\n');
+    const second = recordModule().openRecord({ targetDirs: [claude], homeDir: home, now: new Date(Date.now() + 5000) });
+    simulateInstall(claude);
+    recordModule().closeRecord(second, { owned: [newFileOf(claude)] });
+    recordModule().rollbackNewest({ homeDir: home, runNpm });
+    assert.strictEqual(calls.length, 1);
+  }));
+
+  // Item 9: install:gsd step 4 writes <configDir>/.claude.json after the install closed its record.
+  test('rollback restores .claude.json as written by the MCP step after the record closed', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const mcp = path.join(claude, '.claude.json');
+    fs.writeFileSync(mcp, '{"mcpServers":{"mine":{}}}\n');
+    const dir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
+    fs.writeFileSync(mcp, '{"mcpServers":{"mine":{},"telegram":{}}}\n');
+    assert.strictEqual(recordModule().noteLateWrite({ homeDir: home, file: mcp }), true);
     assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
-    assert.deepStrictEqual(snapshotOf(claude), before);
+    assert.strictEqual(fs.readFileSync(mcp, 'utf8'), '{"mcpServers":{"mine":{}}}\n');
+  }));
+
+  test('rollback removes a .claude.json the MCP step created', () => withHome((home) => {
+    const claude = seedClaudeDir(home);
+    const mcp = path.join(claude, '.claude.json');
+    const dir = recordModule().openRecord({ targetDirs: [claude], homeDir: home });
+    simulateInstall(claude);
+    recordModule().closeRecord(dir, { owned: [newFileOf(claude)] });
+    fs.writeFileSync(mcp, '{}\n');
+    recordModule().noteLateWrite({ homeDir: home, file: mcp });
+    recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(fs.existsSync(mcp), false);
+  }));
+
+  // Items 2 and 5 end to end: the real install() under a temp HOME with npm stubbed (the CLI entry is skipped because
+  // it refuses agent sessions); the record is driven by the same exported functions the CLI uses.
+  const treeOf = (dir) => {
+    const walk = (current) => fs.readdirSync(current, { withFileTypes: true }).flatMap((e) => {
+      const p = path.join(current, e.name);
+      const rel = path.relative(dir, p);
+      if (e.isSymbolicLink()) return [[rel, `link:${fs.readlinkSync(p)}`]];
+      if (e.isDirectory()) return [[rel, 'dir'], ...walk(p)];
+      return [[rel, fs.readFileSync(p, 'base64')]];
+    });
+    return Object.fromEntries(walk(dir).sort());
+  };
+  const driveInstall = (home, claude, project) => {
+    const script = `
+      const i = require(${JSON.stringify(INSTALL_JS_PATH)});
+      const r = require(${JSON.stringify(path.join(__dirname, 'install-record.js'))});
+      const dir = r.openRecord({ targetDirs: [${JSON.stringify(claude)}], homeDir: ${JSON.stringify(home)} });
+      const out = i.install(true, 'claude');
+      i.finishInstall(out.settingsPath, out.settings, out.statuslineCommand, false, 'claude');
+      r.closeRecord(dir, { owned: r.ownedFilesOf(${JSON.stringify(claude)}, ${JSON.stringify(REPO_ROOT)}) });
+    `;
+    return require('child_process').spawnSync(process.execPath, ['--require', mockExecSyncPath, '-e', script], {
+      encoding: 'utf8',
+      cwd: project,
+      timeout: 120000,
+      env: { ...process.env, HOME: home, CLAUDE_CONFIG_DIR: '', GSD_TEST_MOCK_NPM_FAIL: '0' },
+    });
+  };
+  const withInstallSeed = (fn) => withHome((home) => {
+    const project = createScratchDir('gsd-wp22a-cwd-');
+    try {
+      const claude = seedClaudeDir(home);
+      fs.mkdirSync(path.join(claude, 'commands', 'mine'), { recursive: true });
+      fs.writeFileSync(path.join(claude, 'commands', 'mine', 'x.md'), 'foreign command\n');
+      fs.writeFileSync(path.join(claude, 'agents', 'mine.md'), 'foreign agent\n');
+      fs.symlinkSync('mine.md', path.join(claude, 'agents', 'linked.md'));
+      fs.mkdirSync(path.join(claude, 'get-shit-done', 'node_modules', 'm'), { recursive: true });
+      fs.writeFileSync(path.join(claude, 'get-shit-done', 'node_modules', 'm', 'i.js'), 'deps\n');
+      fs.writeFileSync(path.join(claude, 'settings.json'),
+        JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo foreign' }] }] } }, null, 2) + '\n');
+      fn({ home, claude, project });
+    } finally { cleanup(project); }
+  });
+
+  test('install then rollback leaves the seeded tree exactly as it was; a second identical install records nothing', () => withInstallSeed(({ home, claude, project }) => {
+    const seed = treeOf(claude);
+    const first = driveInstall(home, claude, project);
+    assert.strictEqual(first.status, 0, first.stdout + first.stderr);
+    assert.notDeepStrictEqual(treeOf(claude), seed);
+    const upgrades = path.join(home, '.gsd', 'upgrades');
+    assert.strictEqual(fs.readdirSync(upgrades).length, 1);
+    const second = driveInstall(home, claude, project);
+    assert.strictEqual(second.status, 0, second.stdout + second.stderr);
+    assert.strictEqual(fs.readdirSync(upgrades).length, 1);
+    const result = recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD });
+    assert.strictEqual(result.status, 'rolled-back', JSON.stringify(result.left));
+    assert.deepStrictEqual(treeOf(claude), seed);
+  }));
+
+  test('install then rollback on a fresh config dir leaves no installed file, staging or empty directory behind', () => withHome((home) => {
+    const project = createScratchDir('gsd-wp22a-cwd-');
+    try {
+      const claude = path.join(home, '.claude');
+      fs.mkdirSync(claude);
+      const seed = treeOf(claude);
+      const run = driveInstall(home, claude, project);
+      assert.strictEqual(run.status, 0, run.stdout + run.stderr);
+      assert.strictEqual(recordModule().rollbackWithGuard({ homeDir: home, env: {}, session: GOOD }).status, 'rolled-back');
+      assert.deepStrictEqual(treeOf(claude), seed);
+    } finally { cleanup(project); }
   }));
 
   test('rollback refuses when node_modules is gone and no .prev copy exists, changing no file', () => withHome((home) => {

@@ -9,6 +9,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const { refusalOf } = require('../get-shit-done/bin/project-deploy-guard.js');
 const { detectSession } = require('../get-shit-done/bin/project-deploy-session.js');
@@ -17,14 +18,19 @@ const RECORD_FILE = 'record.json';
 const PRE_DIR = 'pre';
 const KEEP_RECORDS = 5;
 const SCOPE_DIRS = ['get-shit-done', 'commands', 'command', 'agents', 'hooks', 'gsd-local-patches', 'skills'];
-const SCOPE_FILES = ['settings.json', 'settings.local.json', 'gsd-file-manifest.json', 'gsd-source-path.txt'];
+// .claude.json is written by install:gsd step 4 (scripts/install-mcp.js) after install.js exits; noteLateWrite records it.
+const SCOPE_FILES = ['settings.json', 'settings.local.json', 'gsd-file-manifest.json', 'gsd-source-path.txt', '.claude.json'];
 const OWNED_FILES = ['settings.json', 'gsd-file-manifest.json', 'gsd-source-path.txt'];
+// Written by install() into the live get-shit-done tree after the swap (and by installHookDependencies).
+const OWNED_SKILL_FILES = ['CHANGELOG.md', 'VERSION', 'hook-config.json', 'package.json', 'package-lock.json'];
+const MANIFEST_NAME = 'gsd-file-manifest.json';
+const PATCHES_DIR = 'gsd-local-patches';
 const SKIPPED_DIRS = new Set(['node_modules']);
 const CLOSING_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+const STAGING_DIR = '.gsd-staging';
 
 // Hook dependencies sit beside the skill files but are not recorded (SKIPPED_DIRS). The marker lists the targets that had them.
 const depsOf = (targetDir) => path.join(targetDir, 'get-shit-done', 'node_modules');
-const depsPrevOf = (targetDir) => path.join(targetDir, 'get-shit-done.prev', 'node_modules');
 const upgradesRootOf = (homeDir) => path.join(homeDir, '.gsd', 'upgrades');
 const preImageOf = (recordDir, file) => path.join(recordDir, PRE_DIR, file);
 const recordFileOf = (recordDir) => path.join(recordDir, RECORD_FILE);
@@ -59,11 +65,46 @@ function listFiles(dir) {
   });
 }
 
+// The directory and every directory below it (node_modules excluded).
+function listDirs(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const below = fs.readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !SKIPPED_DIRS.has(entry.name))
+    .flatMap((entry) => listDirs(path.join(dir, entry.name)));
+  return [dir, ...below];
+}
+
 function scopeOf(targetDir) {
   return [
     ...SCOPE_DIRS.flatMap((dir) => listFiles(path.join(targetDir, dir))),
     ...SCOPE_FILES.map((file) => path.join(targetDir, file)),
   ];
+}
+
+const scopeDirsOf = (targetDir) => SCOPE_DIRS.flatMap((dir) => listDirs(path.join(targetDir, dir)));
+
+// The three trees install() replaces by stage-and-swap. Stage and prev copies live under <target>/.gsd-staging, on the
+// same filesystem but outside every directory Claude Code discovers from (commands/, agents/, skills/).
+const TREES = [{ name: 'get-shit-done', rel: ['get-shit-done'] }, { name: 'agents', rel: ['agents'] }, { name: 'commands-gsd', rel: ['commands', 'gsd'] }];
+
+function stagePathsOf(liveDir, { stagingRoot = path.join(path.dirname(liveDir), STAGING_DIR), name = path.basename(liveDir) } = {}) {
+  return { stagingRoot, stageDir: path.join(stagingRoot, `${name}.next`), prevDir: path.join(stagingRoot, `${name}.prev`) };
+}
+
+function treesOf(targetDir) {
+  return TREES.map(({ name, rel }) => {
+    const liveDir = path.join(targetDir, ...rel);
+    return { name, liveDir, stagingRoot: path.join(targetDir, STAGING_DIR), ...stagePathsOf(liveDir, { stagingRoot: path.join(targetDir, STAGING_DIR), name }) };
+  });
+}
+
+// Heals what a killed swap leaves: no live tree but a prev (killed between the two renames) is put back, then
+// a node_modules stranded in the stage goes back into the live tree. Runs before any stage is wiped.
+function repairTree(liveDir, { stageDir, prevDir }) {
+  if (lstatOrNull(liveDir) === null && lstatOrNull(prevDir) !== null) fs.renameSync(prevDir, liveDir);
+  const stagedModules = path.join(stageDir, 'node_modules');
+  const liveModules = path.join(liveDir, 'node_modules');
+  if (fs.existsSync(stagedModules) && !fs.existsSync(liveModules) && fs.existsSync(liveDir)) fs.renameSync(stagedModules, liveModules);
 }
 
 // Files one install writes under a target, mirrored from the package. closeRecord treats a file as created by the
@@ -77,6 +118,7 @@ function ownedFilesOf(targetDir, pkgRoot) {
     ...mirrored('agents', 'agents'),
     ...mirrored(path.join('hooks', 'dist'), 'hooks'),
     ...OWNED_FILES.map((file) => path.join(targetDir, file)),
+    ...OWNED_SKILL_FILES.map((file) => path.join(targetDir, 'get-shit-done', file)),
   ];
 }
 
@@ -111,10 +153,38 @@ function openRecord({ targetDirs, homeDir = os.homedir(), now = new Date() }) {
   fs.mkdirSync(recordDir);
   const entries = uniq(targetDirs.flatMap(scopeOf)).map((file) => backupEntry(recordDir, file));
   const deps_before = targetDirs.filter((dir) => fs.existsSync(depsOf(dir)));
-  writeRecord(recordDir, { status: 'open', opened: now.toISOString(), targets: targetDirs, deps_before, entries });
+  const dirs_before = uniq(targetDirs.flatMap(scopeDirsOf));
+  writeRecord(recordDir, { status: 'open', opened: now.toISOString(), targets: targetDirs, deps_before, dirs_before, entries });
   pruneRecords(root, recordDir);
   return recordDir;
 }
+
+const withoutTimestamp = (bytes) => {
+  try {
+    const { timestamp, ...rest } = JSON.parse(bytes);
+    return JSON.stringify(rest);
+  } catch {
+    return null;
+  }
+};
+
+// The file manifest carries the install time, so two identical installs differ in that one field only.
+function isTimestampOnlyChange(recordDir, entry) {
+  if (path.basename(entry.path) !== MANIFEST_NAME || entry.pre_sha256 === null || entry.post_sha256 === null) return false;
+  const before = withoutTimestamp(fs.readFileSync(preImageOf(recordDir, entry.path)));
+  return before !== null && before === withoutTimestamp(fs.readFileSync(entry.path));
+}
+
+// The manifest's fingerprint without the install time: a later identical install rewrites only the timestamp, and
+// rollback must still see the file as the install left it.
+function stableFingerprintOf(file) {
+  if (path.basename(file) !== MANIFEST_NAME || lstatOrNull(file) === null) return null;
+  const stable = withoutTimestamp(fs.readFileSync(file));
+  return stable === null ? null : sha256(stable);
+}
+
+// Files under gsd-local-patches are written only by the installer's patch backup, whatever their names.
+const isPatchFile = (targets, file) => targets.some((target) => file.startsWith(path.join(target, PATCHES_DIR) + path.sep));
 
 // Returns the closed record, or { status: 'unchanged' } after deleting it when the install changed no file.
 function closeRecord(recordDir, { owned = [] } = {}) {
@@ -129,9 +199,11 @@ function closeRecord(recordDir, { owned = [] } = {}) {
       path: file,
       pre_sha256: known.has(file) ? known.get(file).pre_sha256 : null,
       post_sha256: fingerprintOf(file),
+      post_stable_sha256: stableFingerprintOf(file),
     }))
-    .filter((entry) => entry.pre_sha256 !== null || created.has(entry.path));
-  if (entries.every((entry) => entry.pre_sha256 === entry.post_sha256)) {
+    .filter((entry) => entry.pre_sha256 !== null || created.has(entry.path) || isPatchFile(record.targets, entry.path));
+  const changed = entries.filter((entry) => entry.pre_sha256 !== entry.post_sha256 && !isTimestampOnlyChange(recordDir, entry));
+  if (changed.length === 0) {
     fs.rmSync(recordDir, { recursive: true, force: true });
     return { ...record, status: 'unchanged', entries: [] };
   }
@@ -173,53 +245,104 @@ function restoreEntry(recordDir, entry) {
   if (entry.pre_sha256 !== null) copyEntry(preImageOf(recordDir, entry.path), entry.path);
 }
 
-// An open record has no post fingerprints, so its pre-images cannot tell a file edited since the crash from one the
-// install left in place. Rollback therefore uses the newest finished record and skips open ones.
-function rollbackNewest({ homeDir = os.homedir() }) {
+// Removes the directories the install created that are now empty; directories that existed at open stay.
+function pruneCreatedDirs(record) {
+  if (record.dirs_before === undefined) return;
+  const before = new Set(record.dirs_before);
+  const created = record.targets.flatMap(scopeDirsOf).filter((dir) => !before.has(dir)).sort().reverse();
+  for (const dir of created) {
+    if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+  }
+}
+
+const skillPackageOf = (targetDir) => path.join(targetDir, 'get-shit-done', 'package.json');
+
+function reinstallDeps(cwd) {
+  try {
+    execFileSync('npm', ['install', '--prefer-offline', '--silent'], { cwd, stdio: 'pipe', timeout: 120000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// node_modules is not restored from a pre-image, so restored pins can disagree with it: one npm install brings them together.
+function syncDeps(record, restored, runNpm) {
+  const pinned = record.targets.filter((target) => restored.some((entry) => entry.path === skillPackageOf(target) && entry.pre_sha256 !== null));
+  return pinned.map((target) => ({ target, ok: runNpm(path.join(target, 'get-shit-done')) }));
+}
+
+// The newest record decides. An open newest record is a crashed install: rollback does not reach past it to an older
+// record (that would revert two versions back, mixed with the crash); re-running the install repairs the trees.
+function rollbackNewest({ homeDir = os.homedir(), runNpm = reinstallDeps }) {
   const dirs = recordDirsNewestFirst(homeDir);
   if (dirs.length === 0) return { status: 'no-record' };
-  const recordDir = dirs.find((dir) => statusOf(dir) !== 'open');
-  if (recordDir === undefined) return { status: 'incomplete', recordDir: dirs[0] };
+  const recordDir = dirs[0];
+  if (statusOf(recordDir) === 'open') return { status: 'incomplete', recordDir };
   const record = readRecord(recordDir);
   if (record.status === 'rolled_back') return { status: 'already-rolled-back', recordDir };
+  for (const target of record.targets) {
+    for (const tree of treesOf(target)) repairTree(tree.liveDir, tree);
+  }
   const lostDeps = (record.deps_before ?? []).filter((dir) => !fs.existsSync(depsOf(dir)));
-  const unrecoverable = lostDeps.filter((dir) => !fs.existsSync(depsPrevOf(dir)));
-  if (unrecoverable.length > 0) return { status: 'deps-missing', recordDir, left: unrecoverable };
-  for (const dir of lostDeps) fs.renameSync(depsPrevOf(dir), depsOf(dir));
+  if (lostDeps.length > 0) return { status: 'deps-missing', recordDir, left: lostDeps };
+  const atPost = (entry, now) => now === entry.post_sha256
+    || (entry.post_stable_sha256 != null && stableFingerprintOf(entry.path) === entry.post_stable_sha256);
   const current = record.entries.map((entry) => ({ entry, now: fingerprintOf(entry.path) }));
   const toRestore = current
-    .filter(({ entry, now }) => now !== entry.pre_sha256 && now === entry.post_sha256)
+    .filter(({ entry, now }) => now !== entry.pre_sha256 && atPost(entry, now))
     .map(({ entry }) => entry);
   const left = current
-    .filter(({ entry, now }) => now !== entry.pre_sha256 && now !== entry.post_sha256)
+    .filter(({ entry, now }) => now !== entry.pre_sha256 && !atPost(entry, now))
     .map(({ entry }) => entry.path);
   for (const entry of toRestore) restoreEntry(recordDir, entry);
+  for (const target of record.targets) fs.rmSync(path.join(target, STAGING_DIR), { recursive: true, force: true });
+  pruneCreatedDirs(record);
+  const deps = syncDeps(record, toRestore, runNpm);
   if (left.length === 0) writeRecord(recordDir, { ...record, status: 'rolled_back' });
   return {
     status: left.length === 0 ? 'rolled-back' : 'partial',
     recordDir,
     restored: toRestore.map((entry) => entry.path),
     left,
+    deps,
   };
 }
 
-function rollbackWithGuard({ homeDir = os.homedir(), env = process.env, session }) {
-  const refusal = refusalOf({ command: 'rollback', guarded: [upgradesRootOf(homeDir)], env, session });
-  return refusal ? { status: 'refused', refusal } : rollbackNewest({ homeDir });
+// install:gsd step 4 writes <configDir>/.claude.json after install.js closed its record. The newest closed record takes
+// the file's new fingerprint so rollback restores it. With no closed newest record (the install changed nothing else)
+// there is nothing to amend and the write stays unrecorded.
+function noteLateWrite({ homeDir = os.homedir(), file }) {
+  const [recordDir] = recordDirsNewestFirst(homeDir);
+  if (recordDir === undefined || statusOf(recordDir) !== 'closed') return false;
+  const record = readRecord(recordDir);
+  if (!record.targets.some((target) => path.dirname(file) === target)) return false;
+  const known = record.entries.find((entry) => entry.path === file);
+  const entry = { path: file, pre_sha256: known ? known.pre_sha256 : null, post_sha256: fingerprintOf(file) };
+  writeRecord(recordDir, { ...record, entries: [...record.entries.filter((e) => e.path !== file), entry] });
+  return true;
 }
 
+function rollbackWithGuard({ homeDir = os.homedir(), env = process.env, session, runNpm = reinstallDeps }) {
+  const refusal = refusalOf({ command: 'rollback', guarded: [upgradesRootOf(homeDir)], env, session });
+  return refusal ? { status: 'refused', refusal } : rollbackNewest({ homeDir, runNpm });
+}
+
+const depsLine = (deps = []) => deps
+  .map(({ target, ok }) => (ok ? `; reinstalled hook dependencies in ${target}` : `; npm install failed in ${target}, run it by hand`))
+  .join('');
 const OK_STATUSES = new Set(['rolled-back', 'already-rolled-back']);
 const SUMMARY = {
-  'rolled-back': (r) => `rolled back ${r.recordDir}: ${r.restored.length} file(s) restored`,
+  'rolled-back': (r) => `rolled back ${r.recordDir}: ${r.restored.length} file(s) restored${depsLine(r.deps)}`,
   'already-rolled-back': (r) => `${r.recordDir} was already rolled back; nothing changed`,
   'no-record': () => 'no upgrade record under ~/.gsd/upgrades; nothing to roll back',
-  incomplete: (r) => `${r.recordDir} never closed (install did not finish); nothing changed`,
+  incomplete: (r) => `${r.recordDir} never closed (the install did not finish); nothing changed. Re-run \`npm run install:gsd\`, which repairs the trees`,
   partial: (r) => `restored ${r.restored.length}; left alone, edited since the install: ${r.left.join(', ')}`,
-  'deps-missing': (r) => `node_modules missing and no .prev copy to restore under: ${r.left.join(', ')}; nothing changed`,
+  'deps-missing': (r) => `node_modules missing under: ${r.left.join(', ')}; nothing changed`,
   refused: (r) => `refused: ${r.refusal.reason} (${r.refusal.failed.join(', ')})`,
 };
 
-module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackNewest, rollbackWithGuard };
+module.exports = { openRecord, closeRecord, closeOnExit, ownedFilesOf, rollbackNewest, rollbackWithGuard, noteLateWrite, stagePathsOf, treesOf, repairTree };
 
 if (require.main === module) {
   const result = rollbackWithGuard({ env: process.env, session: detectSession() });

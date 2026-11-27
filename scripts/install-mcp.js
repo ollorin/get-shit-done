@@ -89,6 +89,13 @@ function installMcp(options = {}) {
   fs.writeFileSync(tmpPath, jsonString + '\n');
   fs.renameSync(tmpPath, mcpPath);
 
+  // The install record closed before this step; amend it so `rollback` restores this file too (no record: no-op).
+  try {
+    require('../bin/install-record.js').noteLateWrite({ file: mcpPath });
+  } catch (err) {
+    console.log(`       Note: rollback record not updated for ${mcpPath}: ${err.message}`);
+  }
+
   // Report what was changed
   const added = Object.keys(gsdServers).filter(k => !existing.mcpServers?.[k]);
   const skipped = Object.keys(gsdServers).filter(k => existing.mcpServers?.[k]);

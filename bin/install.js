@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { execSync, execFileSync } = require('child_process');
 const { refusalOf } = require('../get-shit-done/bin/project-deploy-guard.js');
 const { detectSession } = require('../get-shit-done/bin/project-deploy-session.js');
-const { openRecord, closeOnExit, ownedFilesOf } = require('./install-record.js');
+const { openRecord, closeOnExit, ownedFilesOf, stagePathsOf, treesOf, repairTree } = require('./install-record.js');
 
 // Colors
 const cyan = '\x1b[36m';
@@ -262,10 +262,14 @@ function isUserScope(runtime, isGlobal, targetDir) {
  * Refusal before any write: a config file that does not parse (any run), or an agent session
  * (user-scope targets only: the shared ~/.claude is what the guard protects). Null when the run may proceed.
  */
-function refuseInstall({ targetDirs, runtimes = [], userScope, env, session }) {
+function refuseInstall({ targetDirs, runtimes = [], userScope, env, session, replacesTrees = true }) {
   const corrupt = configFilesOf(runtimes, targetDirs).filter((config) => !isValidConfig(config)).map(({ file }) => file);
   if (corrupt.length > 0) {
     return { reason: 'config file is not valid JSON; fix or move it, nothing was written', paths: corrupt, failed: [] };
+  }
+  const linked = replacesTrees ? targetDirs.flatMap((dir) => treesOf(dir)).map((tree) => tree.liveDir).filter(isSymlink) : [];
+  if (linked.length > 0) {
+    return { reason: 'a tree the install replaces is a symlink; the swap would turn it into a real directory, so nothing was written. Install into the link target by hand or remove the link', paths: linked, failed: [] };
   }
   return userScope ? refusalOf({ command: 'install', guarded: targetDirs, env, session }) : null;
 }
@@ -274,19 +278,28 @@ function refuseInstall({ targetDirs, runtimes = [], userScope, env, session }) {
 const dropsNodeModules = (liveDir, stageDir) => fs.existsSync(path.join(liveDir, 'node_modules'))
   && !fs.existsSync(path.join(stageDir, 'node_modules'));
 
+const isSymlink = (file) => fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink() === true;
+
+function rmdirIfEmpty(dir) {
+  if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+}
+
 /**
- * Build a tree in `<liveDir>.next`, then swap it in (the old tree becomes `<liveDir>.prev`).
- * A failed build removes the staging tree and leaves the live tree as it was; a failed swap puts the old tree back.
+ * Build a tree in `<stagingRoot>/<name>.next` (default: `.gsd-staging` beside the live tree; install() passes the
+ * target's own root so nothing sits inside commands/, agents/ or skills/), ready to swap in with commit(): the old
+ * tree becomes `<name>.prev`. A failed build removes the stage and leaves the live tree as it was; a failed commit
+ * puts the old tree back; revert() undoes a commit that succeeded.
  */
-function stageAndSwap(liveDir, build, rename = fs.renameSync, { keepPrev = true } = {}) {
-  const stageDir = `${liveDir}.next`;
-  const prevDir = `${liveDir}.prev`;
+function prepareTree(liveDir, build, stagingOpts) {
+  if (isSymlink(liveDir)) {
+    throw new Error(`${liveDir} is a symlink; the swap would replace the link with a real directory, so nothing was written`);
+  }
+  const { stagingRoot, stageDir, prevDir } = stagePathsOf(liveDir, stagingOpts);
   const liveModules = path.join(liveDir, 'node_modules');
   const stagedModules = path.join(stageDir, 'node_modules');
-  // A run killed after adopt() stranded the live node_modules in the stage: put it back before the stage is wiped.
-  if (fs.existsSync(stagedModules) && !fs.existsSync(liveModules) && fs.existsSync(liveDir)) {
-    fs.renameSync(stagedModules, liveModules);
-  }
+  // A run killed mid-swap: put the old tree back if it is gone, and a node_modules stranded in the stage back into it.
+  repairTree(liveDir, { stageDir, prevDir });
+  fs.mkdirSync(stagingRoot, { recursive: true });
   fs.rmSync(stageDir, { recursive: true, force: true });
   // Moves the live node_modules into the stage (a move, not a copy: the tree is hundreds of MB); undone on any failure.
   let adopted = false;
@@ -299,28 +312,75 @@ function stageAndSwap(liveDir, build, rename = fs.renameSync, { keepPrev = true 
     if (adopted && fs.existsSync(stagedModules) && !fs.existsSync(liveModules)) fs.renameSync(stagedModules, liveModules);
     adopted = false;
   };
+  const abort = () => {
+    giveBack();
+    fs.rmSync(stageDir, { recursive: true, force: true });
+    rmdirIfEmpty(stagingRoot);
+  };
   try {
     build(stageDir, adopt);
     if (dropsNodeModules(liveDir, stageDir)) {
       throw new Error('hook dependencies (node_modules) are missing from the new tree; the installed tree was left as it was');
     }
   } catch (err) {
-    giveBack();
-    fs.rmSync(stageDir, { recursive: true, force: true });
+    abort();
     throw err;
   }
-  fs.rmSync(prevDir, { recursive: true, force: true });
-  const hadLive = fs.existsSync(liveDir);
-  try {
-    if (hadLive) rename(liveDir, prevDir);
-    rename(stageDir, liveDir);
-  } catch (err) {
-    if (hadLive && !fs.existsSync(liveDir) && fs.existsSync(prevDir)) fs.renameSync(prevDir, liveDir);
-    giveBack();
-    fs.rmSync(stageDir, { recursive: true, force: true });
-    throw err;
+  let hadLive = false;
+  const commit = (rename = fs.renameSync) => {
+    fs.rmSync(prevDir, { recursive: true, force: true });
+    hadLive = fs.existsSync(liveDir);
+    try {
+      if (hadLive) rename(liveDir, prevDir);
+      rename(stageDir, liveDir);
+    } catch (err) {
+      if (hadLive && !fs.existsSync(liveDir) && fs.existsSync(prevDir)) fs.renameSync(prevDir, liveDir);
+      abort();
+      throw err;
+    }
+  };
+  // After a commit: the adopted node_modules goes back to the old tree, then the old tree takes the live place again.
+  const revert = () => {
+    if (adopted && hadLive && fs.existsSync(liveModules)) fs.renameSync(liveModules, path.join(prevDir, 'node_modules'));
+    fs.rmSync(liveDir, { recursive: true, force: true });
+    if (hadLive) fs.renameSync(prevDir, liveDir);
+    adopted = false;
+    rmdirIfEmpty(stagingRoot);
+  };
+  return { commit, revert, abort };
+}
+
+function stageAndSwap(liveDir, build, rename = fs.renameSync, stagingOpts) {
+  prepareTree(liveDir, build, stagingOpts).commit(rename);
+}
+
+/**
+ * Builds every stage first and replaces a tree only when every build succeeded, so a failed build never leaves new
+ * commands or agents over an old get-shit-done. A swap that fails part-way puts the already swapped trees back.
+ * specs: [{ label, liveDir, build, stagingOpts }]; returns { errors: [{ label, message }] }.
+ */
+function swapTrees(specs, rename = fs.renameSync) {
+  const prepared = [];
+  for (const spec of specs) {
+    try {
+      prepared.push({ spec, handle: prepareTree(spec.liveDir, spec.build, spec.stagingOpts) });
+    } catch (err) {
+      [...prepared].reverse().forEach(({ handle }) => handle.abort());
+      return { errors: [{ label: spec.label, message: err.message }] };
+    }
   }
-  if (!keepPrev) fs.rmSync(prevDir, { recursive: true, force: true });
+  const committed = [];
+  for (const item of prepared) {
+    try {
+      item.handle.commit(rename);
+      committed.push(item);
+    } catch (err) {
+      [...committed].reverse().forEach(({ handle }) => handle.revert());
+      prepared.filter((p) => !committed.includes(p) && p !== item).forEach(({ handle }) => handle.abort());
+      return { errors: [{ label: item.spec.label, message: err.message }] };
+    }
+  }
+  return { errors: [] };
 }
 
 /**
@@ -1700,22 +1760,21 @@ function install(isGlobal, runtime = 'claude') {
     const commandsDir = path.join(targetDir, 'commands');
     fs.mkdirSync(commandsDir, { recursive: true });
     
+  }
+
+  // Every tree is built in <target>/.gsd-staging first (commands/ also holds foreign commands, so only commands/gsd
+  // is staged, and no stage or prev ever sits inside a directory Claude Code loads) and all are swapped in together
+  // below, only when every build succeeded.
+  const stagingRoot = path.join(targetDir, '.gsd-staging');
+  const treeSpecs = [];
+  if (!isOpencode) {
     const gsdSrc = path.join(src, 'commands', 'gsd');
-    const gsdDest = path.join(commandsDir, 'gsd');
-    // commands/ also holds foreign commands; only commands/gsd is staged. No .prev is kept inside commands/
-    // (Claude Code would load commands/gsd.prev as live commands).
-    let commandsSwapped = false;
-    try {
-      stageAndSwap(gsdDest, (stageDir) => copyWithPathReplacement(gsdSrc, stageDir, pathPrefix, runtime), fs.renameSync, { keepPrev: false });
-      commandsSwapped = true;
-    } catch (err) {
-      console.error(`  ${yellow}✗${reset} Failed to replace commands/gsd: ${err.message}`);
-    }
-    if (commandsSwapped && verifyInstalled(gsdDest, 'commands/gsd')) {
-      console.log(`  ${green}✓${reset} Installed commands/gsd`);
-    } else {
-      failures.push('commands/gsd');
-    }
+    treeSpecs.push({
+      label: 'commands/gsd',
+      liveDir: path.join(targetDir, 'commands', 'gsd'),
+      build: (stageDir) => copyWithPathReplacement(gsdSrc, stageDir, pathPrefix, runtime),
+      stagingOpts: { stagingRoot, name: 'commands-gsd' },
+    });
   }
 
   // Copy get-shit-done skill with path replacement
@@ -1730,12 +1789,13 @@ function install(isGlobal, runtime = 'claude') {
   const existingHookConfigContent = fs.existsSync(existingHookConfigPath)
     ? fs.readFileSync(existingHookConfigPath, 'utf8')
     : null;
-  // Built in get-shit-done.next (dependencies included) and swapped in; a failed build keeps the old tree.
+  // Dependencies are built into the stage; a failed build keeps the old tree.
   // Declared in the function scope because the compression hook registration below runs for Gemini too.
   let depsOk = false;
-  let skillInstalled = false;
-  try {
-    stageAndSwap(skillDest, (stageDir, adoptNodeModules) => {
+  treeSpecs.push({
+    label: 'get-shit-done',
+    liveDir: skillDest,
+    build: (stageDir, adoptNodeModules) => {
       copyWithPathReplacement(skillSrc, stageDir, pathPrefix, runtime, { verbatimDirs: ['presets'] });
       // npm dependencies for the doc-compression hook; they live in get-shit-done/node_modules/ so the hook can require() them.
       // The live node_modules moves into the stage first, so npm runs against it and a failure leaves the old tree live.
@@ -1745,15 +1805,33 @@ function install(isGlobal, runtime = 'claude') {
         depsOk = installHookDependencies(stageDir);
         if (!depsOk && hadModules) throw new Error('hook dependency install failed; the installed tree was left as it was');
       }
+    },
+    stagingOpts: { stagingRoot, name: 'get-shit-done' },
+  });
+
+  // agents: foreign agents carried over unchanged, gsd-*.md replaced.
+  const agentsSrc = path.join(src, 'agents');
+  const agentsDest = path.join(targetDir, 'agents');
+  if (fs.existsSync(agentsSrc)) {
+    treeSpecs.push({
+      label: 'agents',
+      liveDir: agentsDest,
+      build: (stageDir) => buildAgentsStage(agentsDest, stageDir, agentsSrc, pathPrefix, runtime),
+      stagingOpts: { stagingRoot, name: 'agents' },
     });
-    skillInstalled = verifyInstalled(skillDest, 'get-shit-done');
-  } catch (err) {
-    console.error(`  ${yellow}✗${reset} Failed to replace get-shit-done: ${err.message}`);
   }
-  if (skillInstalled) {
-    console.log(`  ${green}✓${reset} Installed get-shit-done`);
-  } else {
-    failures.push('get-shit-done');
+
+  const swapped = swapTrees(treeSpecs);
+  if (swapped.errors.length > 0) {
+    for (const { label, message } of swapped.errors) {
+      console.error(`  ${yellow}✗${reset} Failed to replace ${label}: ${message}`);
+    }
+    console.error(`\n  ${yellow}Installation incomplete!${reset} No tree was replaced; the installed trees are as they were.`);
+    process.exit(1);
+  }
+  for (const { label, liveDir } of treeSpecs) {
+    if (verifyInstalled(liveDir, label)) console.log(`  ${green}✓${reset} Installed ${label}`);
+    else failures.push(label);
   }
 
   if (!isOpencode && !isGemini) {
@@ -1761,25 +1839,6 @@ function install(isGlobal, runtime = 'claude') {
       console.log(`  ${green}✓${reset} Installed hook dependencies (markdown-it, gray-matter, minimatch, @xenova/transformers)`);
     } else {
       console.log(`  ${yellow}⚠${reset} Hook dependencies install failed — doc compression will be unavailable`);
-    }
-  }
-
-  // Copy agents to agents directory
-  const agentsSrc = path.join(src, 'agents');
-  if (fs.existsSync(agentsSrc)) {
-    const agentsDest = path.join(targetDir, 'agents');
-    // Built in agents.next (foreign agents carried over unchanged, gsd-*.md replaced) and swapped in; a failed build keeps the old tree.
-    let agentsSwapped = false;
-    try {
-      stageAndSwap(agentsDest, (stageDir) => buildAgentsStage(agentsDest, stageDir, agentsSrc, pathPrefix, runtime));
-      agentsSwapped = true;
-    } catch (err) {
-      console.error(`  ${yellow}✗${reset} Failed to replace agents: ${err.message}`);
-    }
-    if (agentsSwapped && verifyInstalled(agentsDest, 'agents')) {
-      console.log(`  ${green}✓${reset} Installed agents`);
-    } else {
-      failures.push('agents');
     }
   }
 
@@ -2192,16 +2251,16 @@ function targetDirOf(runtime, isGlobal) {
  * Checks every run that writes or removes files (install and uninstall): {userDirs, refusal}.
  * userDirs are the targets in user scope; refusal is null when the run may proceed.
  */
-function runRefusal({ runtimes, isGlobal, env, session }) {
+function runRefusal({ runtimes, isGlobal, env, session, replacesTrees = true }) {
   const targetDirs = runtimes.map((runtime) => targetDirOf(runtime, isGlobal));
   const userDirs = targetDirs.filter((dir, i) => isUserScope(runtimes[i], isGlobal, dir));
-  const refusal = refuseInstall({ targetDirs, runtimes, userScope: userDirs.length > 0, env, session });
+  const refusal = refuseInstall({ targetDirs, runtimes, userScope: userDirs.length > 0, env, session, replacesTrees });
   return { userDirs, refusal };
 }
 
 // Exits before the first write when refused; otherwise opens the rollback record for user-scope targets.
-function beginRun(runtimes, isGlobal) {
-  const { userDirs, refusal } = runRefusal({ runtimes, isGlobal, env: process.env, session: detectSession() });
+function beginRun(runtimes, isGlobal, replacesTrees = true) {
+  const { userDirs, refusal } = runRefusal({ runtimes, isGlobal, env: process.env, session: detectSession(), replacesTrees });
   if (refusal) {
     const checks = refusal.failed.length > 0 ? [`checks failed: ${refusal.failed.join(', ')}`] : [];
     console.error(`  ${yellow}Install refused:${reset} ${refusal.reason}`);
@@ -2275,7 +2334,7 @@ if (require.main === module) {
       process.exit(1);
     }
     const runtimes = selectedRuntimes.length > 0 ? selectedRuntimes : ['claude'];
-    beginRun(runtimes, hasGlobal);
+    beginRun(runtimes, hasGlobal, false);
     for (const runtime of runtimes) {
       uninstall(hasGlobal, runtime);
     }
@@ -2298,4 +2357,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir, readSettings, readOpencodeConfig, writeSettings, refuseInstall, runRefusal, stageAndSwap, buildAgentsStage };
+module.exports = { installHookDependencies, wrapWithTimeout, resolveTimeoutBinary, rewrapGsdHookCommands, writeManifest, pruneIdenticalPatches, copyWithPathReplacement, copyDirVerbatim, rewriteClaudeDir, readSettings, readOpencodeConfig, writeSettings, refuseInstall, runRefusal, stageAndSwap, swapTrees, buildAgentsStage, install, finishInstall };
