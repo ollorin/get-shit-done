@@ -96,7 +96,24 @@ const HOST_FIELDS = [
 
 const flakeExtra = (_key, o) => (Array.isArray(o.patterns) ? o.patterns.flatMap(patternProblems) : []);
 
-const NEW_STACK_KEYS = Object.freeze(['locked_commands', 'flake_patterns', 'deploy', 'style', 'cve', 'host', 'mutation']);
+// stack.affected.{specs,tests}: each present selector is validated by the preset's own parseSelectorConfig (ESM, so
+// require() needs Node 22.12+; an older Node reports the block as unvalidated rather than passing it).
+function affectedShape(key, v) {
+  if (!isObject(v)) return [problem(key, 'must be an object')];
+  let parse;
+  try {
+    ({ parseSelectorConfig: parse } = require('../presets/base/scripts/lib/affected.mjs'));
+  } catch {
+    return [problem(key, 'cannot be validated: this Node cannot require() an ES module (needs Node 22.12+)')];
+  }
+  return ['specs', 'tests'].flatMap((name) => {
+    if (v[name] === undefined) return [];
+    const r = parse(v[name], `${key}.${name}`);
+    return r.ok ? [] : [problem(`${key}.${name}`, r.error)];
+  });
+}
+
+const NEW_STACK_KEYS = Object.freeze(['locked_commands', 'flake_patterns', 'deploy', 'style', 'cve', 'host', 'mutation', 'affected']);
 
 const NEW_SHAPE_CHECKS = Object.freeze([
   ['stack.branch', objectShape([])],
@@ -107,6 +124,7 @@ const NEW_SHAPE_CHECKS = Object.freeze([
   ['stack.cve', objectShape(CVE_FIELDS)],
   ['stack.host', objectShape(HOST_FIELDS)],
   ['stack.mutation', objectShape(MUTATION_FIELDS)],
+  ['stack.affected', affectedShape],
 ]);
 
 module.exports = { NEW_STACK_KEYS, NEW_SHAPE_CHECKS, DEPLOY_SLOTS, RENDERED_TEXT_RE, RENDERED_TEXT_MAX, isRenderedText };
