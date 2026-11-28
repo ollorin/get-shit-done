@@ -74,7 +74,7 @@ describe('P1 the coordinator is a thin dispatcher', () => {
   test('the interim notice is not a handback, and the stall watchdog is a run_in_background timer of 2700 s', () => {
     for (const t of [COORD, DETAIL]) {
       assert.match(t, /"is waiting on its own background work", or whose note says the result may be interim, is not a handback/);
-      assert.match(t, /With each wait start one `run_in_background` timer of 2700 s/);
+      assert.match(t, /Before ending a turn with any child open, start one literal background command `sleep 2700`/);
     }
   });
 
