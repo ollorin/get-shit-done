@@ -24,6 +24,12 @@ describe('plan overlap', () => {
     assert.match(reasons({ files: ['src/lib/'] }, { files: ['src/lib/x.js'] }).reasons[0], /directory prefix src\/lib covers src\/lib\/x\.js/);
     assert.strictEqual(reasons({ files: ['src/lib'] }, { files: ['src/library/x.js'] }).disjoint, true);
   });
+  test('a phase captures directory is no conflict, a shared capture file still is', () => {
+    const c = '.planning/phases/34-x/captures';
+    assert.strictEqual(reasons({ files: [c, 'src/a.js'] }, { files: [c, 'src/b.js'] }).disjoint, true);
+    assert.strictEqual(reasons({ files: [c] }, { files: [`${c}/01-t1.txt`] }).disjoint, true);
+    assert.match(reasons({ files: [`${c}/01-t1.txt`] }, { files: [`${c}/01-t1.txt`] }).reasons[0], /shared file .*01-t1\.txt/);
+  });
   test('two migrations', () => assert.deepStrictEqual(reasons({ files: ['db/migrations/1_a.sql'] }, { files: ['db/migrations/2_b.sql'] }).reasons, ['both plans add migrations']));
   test('two UI specs', () => assert.deepStrictEqual(reasons({ files: ['tests/a.spec.ts'] }, { files: ['e2e/b.ts'] }).reasons, ['both plans touch UI specs']));
   test('a dependency, either direction, with or without leading zeros', () => {

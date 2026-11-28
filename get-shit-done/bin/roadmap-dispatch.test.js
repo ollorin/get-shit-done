@@ -55,6 +55,15 @@ describe('next', () => {
     assert.deepStrictEqual(r2.parked.sort(), ['1', '2']);
     assert.ok(r2.log.some(e => e.type === 'phase_parked' && e.phase === '2'));
   });
+  test('exclude skips a running phase, never returns a dependent or parked one, and says so when nothing is ready', () => {
+    const running = [{ type: 'phase_start', phase: '1' }];
+    assert.strictEqual(nextOf(running, []).phase, '1', 'without exclude a running phase comes back');
+    assert.strictEqual(nextOf(running, [], { exclude: ['1'] }).phase, '3');
+    const both = [...running, { type: 'phase_start', phase: '3' }];
+    assert.strictEqual(nextOf(both, [], { exclude: ['1', '3'] }).action, 'nothing_ready');
+    assert.strictEqual(nextOf([{ type: 'phase_parked', phase: '3' }, ...running], [], { exclude: ['1'] }).action, 'nothing_ready');
+    assert.strictEqual(nextOf([{ type: 'phase_parked', phase: '3' }, ...running], [], { exclude: ['1'], retryParked: true }).phase, '3');
+  });
   test('retryParked re-opens parked phases', () => {
     assert.strictEqual(nextOf([{ type: 'phase_parked', phase: '1' }], [], { retryParked: true }).phase, '1');
   });
@@ -252,5 +261,18 @@ describe('N9: form debt is one mechanism (VERIFICATION form_debt written by phas
     assert.strictEqual(nextOf(events, []).phase, '1');
     assert.strictEqual(nextOf(events, ['1', '2', '3', '4'], { gateMarked: true, prRecorded: true }).form_debt, undefined);
     assert.deepStrictEqual(d.incompletePhases(events, () => false), ['1']);
+  });
+});
+
+describe('roadmap next --exclude is gated by workflow.parallel_phases', () => {
+  const { makeProject, gsd } = require('../../tests/helpers/roadmap-fixture.js');
+  const second = (config) => {
+    const dir = makeProject([{ n: '1', name: 'one' }, { n: '2', name: 'two' }], config);
+    try { gsd(dir, ['roadmap', 'next']); return gsd(dir, ['roadmap', 'next', '--exclude', '1']).json.phase; } finally { require('fs').rmSync(dir, { recursive: true, force: true }); }
+  };
+  test('on: a second independent phase; off or unset: the running phase again', () => {
+    assert.strictEqual(second({ workflow: { parallel_phases: true } }), '2');
+    assert.strictEqual(second({ workflow: { parallel_phases: false } }), '1');
+    assert.strictEqual(second({}), '1');
   });
 });

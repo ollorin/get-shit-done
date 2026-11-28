@@ -343,7 +343,7 @@ Phase planning complete when:
 - [ ] Each plan: 2-3 implementation tasks plus their mandated companion tasks (~50% context)
 - [ ] Each task: Type, Files (if auto), Action, Verify, Done
 - [ ] Checkpoints properly structured
-- [ ] Wave structure maximizes parallelism
+- [ ] Wave structure maximizes parallelism: same-wave plans pass `gsd-tools plan overlap`, list exact `files_modified`, share one surface test in one plan
 - [ ] PLAN file(s) committed to git
 - [ ] User knows next steps and wave structure
 

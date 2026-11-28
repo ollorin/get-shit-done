@@ -172,6 +172,7 @@ issue:
 - Circular dependency (A -> B -> A)
 - Future reference (plan 01 referencing plan 03's output)
 - Wave assignment inconsistent with dependencies
+- Two plans in the same wave that fail `gsd-tools plan overlap` (warning)
 
 **Dependency rules:**
 - `depends_on: []` = Wave 1 (can run parallel)

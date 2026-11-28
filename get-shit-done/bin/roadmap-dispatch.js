@@ -111,6 +111,7 @@ function next(input) {
   const done = new Set(phases.map((p) => phaseKey(p.number)).filter((k) => truth(k)));
 
   const blocked = blockedSet(phases, folded, done, input.retryParked);
+  const exclude = new Set(input.exclude || []);
 
   const base = { models: { coordinator: cfg.coordinator_model || 'sonnet' } };
   const og = input.ownerGate || {};
@@ -118,7 +119,7 @@ function next(input) {
   if (og.blocked_by && og.blocked_by !== 'pr') return waiting(og.blocked_by, og.status);
   for (const p of phases) {
     const k = phaseKey(p.number);
-    if (done.has(k) || blocked.has(k)) continue;
+    if (done.has(k) || blocked.has(k) || exclude.has(k)) continue;
     if (!parseDeps(p.depends_on).every((d) => done.has(d))) continue;
     const s = stateOf(k);
     const common = { ...base, phase: k, name: p.name, model: base.models.coordinator, phase_risk_domains: input.riskDomains ? input.riskDomains(k) : [] };
@@ -137,6 +138,7 @@ function next(input) {
       log.push({ type: 'phase_parked', phase: k, reason: 'dependency_parked' });
     }
   }
+  if (exclude.size > 0) return { ...base, action: 'nothing_ready', excluded: [...exclude], log };
   const remaining = phases.map((p) => phaseKey(p.number)).filter((k) => !done.has(k));
   if (blocked.size > 0) {
     return { ...base, action: 'done', complete: false, parked: [...blocked], completed_phases: [...done], log };

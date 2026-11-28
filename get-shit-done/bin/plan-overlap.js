@@ -34,6 +34,8 @@ function filesOf(v, root) {
 const isMigration = (f) => f.split('/').includes('migrations');
 const isUiSpec = (f) => /\.(spec|e2e)\.[cm]?[jt]sx?$/.test(f) || /(^|\/)e2e\//.test(f);
 const within = (a, b) => a === b || b.startsWith(`${a}/`);
+// A phase's captures/ directory holds per-plan evidence files: listing the directory is not a claim on its files.
+const isCapturesDir = (f) => /^\.planning\/phases\/[^/]+\/captures$/.test(f);
 
 // {id, files, depends_on} of one plan file's text. `id` is `phase-plan` (the form depends_on uses) when both are present.
 // A plan whose files cannot be read as a flat list comes back as { error }: it never gets a verdict.
@@ -51,6 +53,7 @@ const idMatches = (dep, plan) => dep === plan.id || (plan.id && String(dep).repl
 function overlap(a, b) {
   const out = [];
   for (const x of a.files) for (const y of b.files) {
+    if ((isCapturesDir(x) || isCapturesDir(y)) && (within(x, y) || within(y, x)) && !(x === y && !isCapturesDir(x))) continue;
     if (x === y) out.push(`shared file ${x}`);
     else if (within(x, y) || within(y, x)) out.push(`directory prefix ${within(x, y) ? x : y} covers ${within(x, y) ? y : x}`);
   }

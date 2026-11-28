@@ -169,13 +169,14 @@ const MAX_EXECUTORS = 2;
 const endHint = (l) => `end it, or close it with \`dispatch end --stale ${l.id} --reason "<text>"\` when that agent is dead`;
 
 // A second executor in one phase needs `--plan` on both leases, file-disjoint plans (plan-overlap.js), and at most MAX_EXECUTORS open.
-function executorRefusal(cwd, k, open, plan) {
+// Open executor leases of other phases (cross-phase lanes) are checked for file overlap too.
+function executorRefusal(cwd, k, open, plan, others) {
   const mine = open.filter((l) => l.role === 'executor');
-  if (mine.length === 0) return null;
+  if (mine.length === 0) return plan && others.length > 0 ? overlapRefusal(cwd, plan, others) : null;
   const first = mine[0];
   if (!plan || mine.some((l) => !l.plan)) return `phase ${k} already has an open executor lease (${first.id}): a second executor needs --plan on both leases; ${endHint(first)}`;
   if (mine.length >= MAX_EXECUTORS) return `phase ${k} already has ${MAX_EXECUTORS} open executor leases (${mine.map((l) => l.id).join(', ')}): ${endHint(first)}`;
-  return overlapRefusal(cwd, plan, mine);
+  return overlapRefusal(cwd, plan, [...mine, ...others]);
 }
 const overlapRefusal = (cwd, plan, mine) => { const c = planOverlap.leaseConflict(cwd, plan, mine.map((l) => l.plan)); return c ? `${c}; ${endHint(mine[0])}` : null; };
 
@@ -188,7 +189,7 @@ function begin({ cwd, phase, role, id, events, now = Date.now(), ttlMin = DEFAUL
     const q = loadOrQuarantine(cwd);
     const r = reconcile(touch(q.leases, events, k), events, k, now, ttlMin);
     const open = r.leases.filter((l) => !l.end && l.phase === k);
-    const execRefusal = role === 'executor' ? executorRefusal(cwd, k, open, plan) : null;
+    const execRefusal = role === 'executor' ? executorRefusal(cwd, k, open, plan, r.leases.filter((l) => !l.end && l.phase !== k && l.role === 'executor' && l.plan)) : null;
     const refuse = open.find((l) => l.id === id) ? `lease ${id} is already open in phase ${k}`
       : execRefusal ? execRefusal
         : role === 'window' && open.find((l) => l.role === role) ? `phase ${k} already has an open ${role} lease (${open.find((l) => l.role === role).id}): ${endHint(open.find((l) => l.role === role))}`

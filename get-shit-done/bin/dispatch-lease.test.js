@@ -93,6 +93,12 @@ describe('dispatch leases', () => {
       L.begin({ cwd: dir, phase: '1', role: 'executor', id: 'c', events: [], now: T0 + 130000 });
       assert.match(ex('d', plan(2, 'src/b.js'), 3).error, /second executor needs --plan on both leases/);
     });
+    test('an executor of another phase with an overlapping plan is refused, a disjoint one is allowed', () => {
+      assert.ok(ex('a', plan(1, 'src/a.js')).lease);
+      const other = (id, p, t) => L.begin({ cwd: dir, phase: '2', role: 'executor', id, plan: p, events: [], now: T0 + t * 60000 });
+      assert.match(other('x', plan(2, 'src/a.js'), 1).error, /not file-disjoint \(shared file src\/a\.js\)/);
+      assert.ok(other('y', plan(3, 'src/c.js'), 2).lease);
+    });
     test('a window lease stays exclusive beside executor leases', () => {
       ex('a', plan(1, 'src/a.js'));
       assert.ok(L.begin({ cwd: dir, phase: '1', role: 'window', id: 'w1', events: [], now: T0 + 60000 }).lease);
