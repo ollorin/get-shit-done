@@ -154,7 +154,7 @@ task / one finding batch per fresh agent, read line ranges not whole files, save
 may run 2 executors only on file-disjoint plans** (`gsd-tools plan overlap` clean, `claims check` clear,
 each in its own worktree, `--plan` on both `dispatch begin executor` leases, each plan's resume state in
 `TASK-CHECKPOINT-{plan_id}.json`); never a third, never parallel UI QA workers. Only the top-level
-roadmap runner may run up to **3 phase coordinators** at once (plan-ahead for phase N+1 only during phase N's full test and gate run, then `gsd-tools plan rebase-check` on each plan before N+1 executes);
+roadmap runner may run up to **3 phase coordinators** at once (plan-ahead for phase N+1 from the end of phase N's last executor, then `gsd-tools plan rebase-check` on each plan before N+1 executes);
 their phases must not edit the same files (claims live in `.tmp/phase-file-claims.md`). Everything
 touching the shared stack (live tests, DB mutations, db reset, preflight) is serialized by
 `.tmp/local-stack.lock` (`owner.txt`; take before, release after). `supabase db reset` needs no CEO
